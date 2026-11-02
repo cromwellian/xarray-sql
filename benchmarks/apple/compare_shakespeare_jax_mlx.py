@@ -159,6 +159,11 @@ def main():
     jax.block_until_ready((p, m, v))
     rows = []
     for iteration in range(args.steps):
+        if iteration > 0 and iteration % 200 == 0:
+            # Match SQL's later evaluation batches without timing evaluation.
+            for values in (train, val):
+                for _ in range(20):
+                    data_rng.integers(len(values) - 256, size=12)
         input_started = time.perf_counter()
         starts = data_rng.integers(len(train) - 256, size=12)
         tok = np.stack([train[i : i + 256] for i in starts]).astype(np.int32)

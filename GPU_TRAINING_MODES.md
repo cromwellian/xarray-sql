@@ -155,6 +155,10 @@ The matched comparison omits `--gpu-dropout` on the SQL command to use the
 same CPU-mask stream. Its independent JAX command is:
 
 ```sh
+uv venv --python 3.12 /private/tmp/xql-jax-mlx-venv
+uv pip install --python /private/tmp/xql-jax-mlx-venv/bin/python \
+  metaljax==0.11.9 jax==0.11.2 jaxlib==0.11.2 numpy==2.5.4
+
 JAX_PLATFORMS=metal METALJAX_MATMUL_PRECISION=high MLX_ENABLE_TF32=0 \
   /private/tmp/xql-jax-mlx-venv/bin/python benchmarks/apple/compare_shakespeare_jax_mlx.py \
   --steps 100 --output benchmarks/apple/jax-control.json \
