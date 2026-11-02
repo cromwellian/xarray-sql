@@ -64,7 +64,8 @@ def test_training_state_reuses_primal_and_owns_inputs(precision):
 
 
 @pytest.mark.parametrize("precision", _PRECISIONS)
-def test_training_failure_keeps_all_state(precision):
+@pytest.mark.parametrize("capture", [True, False])
+def test_training_failure_keeps_all_state(precision, capture):
     ctx = Context()
     for name, values in (("a", [1.0, 2.0]), ("b", [3.0, 4.0])):
         ctx.from_dataset(name, xr.Dataset({"v": ("i", values)}))
@@ -73,6 +74,8 @@ def test_training_failure_keeps_all_state(precision):
     session.bind("b")
     before = session.export("a", "b")
     step = session.prepare_step(
+        capture_intermediates=capture,
+        compile=precision == "float32",
         gradients={
             "g": "WITH loss AS (SELECT SUM(v*v) AS l FROM a) SELECT i,grad(loss,v) AS g FROM a ORDER BY i"
         },
@@ -93,7 +96,8 @@ def test_training_failure_keeps_all_state(precision):
 @pytest.mark.skipif(
     os.environ.get("MLX_ENABLE_TF32") != "0", reason="requires GPU"
 )
-def test_compiled_training_uses_new_tokens_and_learning_rates():
+@pytest.mark.parametrize("capture", [True, False])
+def test_compiled_training_uses_new_tokens_and_learning_rates(capture):
     ctx = Context()
     weights = np.arange(1, 7, dtype=float).reshape(3, 2)
     ctx.from_dataset("w", xr.Dataset({"v": (("tok", "e"), weights)}))
@@ -116,6 +120,7 @@ def test_compiled_training_uses_new_tokens_and_learning_rates():
         },
         assignments={"w": ("u", ["tok", "e", "v"])},
         compile=True,
+        capture_intermediates=capture,
     )
     for tokens, lr in (([2, 2, 0], 0.1), ([1, 0, 1], 0.03), ([0, 0, 2], 0.07)):
         session.bind("batch", xr.Dataset({"tok": ("pos", tokens)}))

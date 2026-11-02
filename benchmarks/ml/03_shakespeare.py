@@ -25,6 +25,11 @@ import xarray as xr
 from _hosts import DenseCPU, DenseGPU
 from _shakespeare_torch import _TorchReference
 
+try:
+    import mlx.core as mx
+except ImportError:
+    mx = None
+
 import xarray_sql as xql
 from xarray_sql.math import register_erf
 from xarray_sql.training import TrainingSession
@@ -134,6 +139,16 @@ def _parser():
         "--profile-memory",
         action="store_true",
         help="sample current RSS outside training timers at log intervals",
+    )
+    p.add_argument(
+        "--discard-intermediates",
+        action="store_true",
+        help="retain state/loss outputs while preserving all validation",
+    )
+    p.add_argument(
+        "--metal-capture",
+        type=Path,
+        help="capture the second training step as a .gputrace",
     )
     return p
 
@@ -284,6 +299,10 @@ def _save(
 def main():
     parser = _parser()
     args = parser.parse_args()
+    if args.metal_capture and (args.backend != "dense_gpu" or mx is None):
+        parser.error("--metal-capture requires MLX GPU execution")
+    if args.discard_intermediates and args.verify_nanogpt:
+        parser.error("--verify-nanogpt requires retained intermediate exports")
     if args.gpu_dropout:
         args.resident = True
         if args.backend != "dense_gpu":
@@ -382,6 +401,8 @@ def main():
                 "profile_memory",
                 "resident",
                 "compile_training",
+                "discard_intermediates",
+                "metal_capture",
             }
             for key, value in vars(args).items():
                 if (
@@ -476,6 +497,7 @@ def main():
             updates=updates_sql,
             assignments=assignments,
             compile=args.compile_training,
+            capture_intermediates=not args.discard_intermediates,
         )
 
     def load(name, value):
@@ -590,31 +612,42 @@ def main():
                     }
                 ),
             )
-            started = time.perf_counter()
-            if resident is None:
-                loss = float(train_loss()["l"][0].as_py())
-                grad_rows = gradients()
-                grads = {
-                    name: xql.to_dataset(rows, dims=list(_MODEL.PARAMS[name]))
-                    for name, rows in zip(params, grad_rows)
-                }
-                for name, ds in grads.items():
-                    host.load(name + "_grad", ds)
-                host.load("clip", xql.to_dataset(clip(), dims=[]))
-                # Compute every update before replacing any current weight.
-                next_tables = {
-                    name: xql.to_dataset(run(), dims=list(_MODEL.PARAMS[name]))
-                    for name, run in updates.items()
-                }
-                for name, ds in next_tables.items():
-                    params[name] = ds.w.values
-                    moments[name] = (ds.m.values, ds.v.values)
-                    host.load(name, ds[["w"]])
-                    host.load(name + "_state", ds[["m", "v"]])
-            else:
-                result = resident_step()
-                loss = result.loss_value()
-            seconds = time.perf_counter() - started
+            capture = args.metal_capture is not None and iteration == 1
+            if capture:
+                mx.metal.start_capture(str(args.metal_capture.resolve()))
+            try:
+                started = time.perf_counter()
+                if resident is None:
+                    loss = float(train_loss()["l"][0].as_py())
+                    grad_rows = gradients()
+                    grads = {
+                        name: xql.to_dataset(
+                            rows, dims=list(_MODEL.PARAMS[name])
+                        )
+                        for name, rows in zip(params, grad_rows)
+                    }
+                    for name, ds in grads.items():
+                        host.load(name + "_grad", ds)
+                    host.load("clip", xql.to_dataset(clip(), dims=[]))
+                    # Compute every update before replacing any current weight.
+                    next_tables = {
+                        name: xql.to_dataset(
+                            run(), dims=list(_MODEL.PARAMS[name])
+                        )
+                        for name, run in updates.items()
+                    }
+                    for name, ds in next_tables.items():
+                        params[name] = ds.w.values
+                        moments[name] = (ds.m.values, ds.v.values)
+                        host.load(name, ds[["w"]])
+                        host.load(name + "_state", ds[["m", "v"]])
+                else:
+                    result = resident_step()
+                    loss = result.loss_value()
+                seconds = time.perf_counter() - started
+            finally:
+                if capture:
+                    mx.metal.stop_capture()
             if reference:
                 if resident is not None:
                     if args.gpu_dropout:

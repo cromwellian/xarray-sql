@@ -389,6 +389,7 @@ class TrainingSession:
         assignments,
         loss_column="l",
         compile=False,
+        capture_intermediates=True,
     ):
         """Prepare one shared ddx backward followed by ordinary SQL statements.
 
@@ -396,11 +397,14 @@ class TrainingSession:
         ``assignments`` maps each owned state table to ``(result, columns)``.
         All update SELECTs read the same old state. The primal loss is read
         from ddx's saved output, without an independent forward query.
+        ``capture_intermediates=False`` retains only state and loss outputs;
+        intermediate exports are unavailable. All validation still runs.
         """
         step = _TrainingStep(
             self, gradients, stages, updates, assignments, loss_column
         )
         step.compile = compile
+        step.capture_intermediates = capture_intermediates
         return step
 
     def query(self, sql):
@@ -595,7 +599,11 @@ class _TrainingStep:
             arrays.append(
                 runtime.random_key(session._random_seed, session._random_step)
             )
-        guard = (owner._epoch, owner._backend.session_key())
+        guard = (
+            owner._epoch,
+            owner._backend.session_key(),
+            self.capture_intermediates,
+        )
         if getattr(self, "_compiled_guard", None) != guard:
 
             def function(*args):
@@ -616,7 +624,11 @@ class _TrainingStep:
                     packed, self._output_layouts = self._pack(
                         {
                             ("loss",): loss,
-                            **{("result", n): t for n, t in results.items()},
+                            **(
+                                {("result", n): t for n, t in results.items()}
+                                if self.capture_intermediates
+                                else {}
+                            ),
                             **{("state", n): t for n, t in next_state.items()},
                         }
                     )
@@ -637,7 +649,11 @@ class _TrainingStep:
         results = {k[1]: v for k, v in restored.items() if k[0] == "result"}
         next_state = {k[1]: v for k, v in restored.items() if k[0] == "state"}
         owner._refresh()
-        self._compiled_guard = (owner._epoch, owner._backend.session_key())
+        self._compiled_guard = (
+            owner._epoch,
+            owner._backend.session_key(),
+            self.capture_intermediates,
+        )
         return loss, results, next_state
 
     def __call__(self):
@@ -665,6 +681,8 @@ class _TrainingStep:
                 loss_table, results, next_state = self._build()
                 results.update(masks)
                 session._validate([loss_table, *results.values()])
+                if not self.capture_intermediates:
+                    results = {}
             # Validation proved these full domains have no NULLs.
             next_state = {
                 n: _DeviceTable(
