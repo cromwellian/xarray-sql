@@ -1,0 +1,49 @@
+{
+  "devices": [
+    "MetalDevice(id=0)"
+  ],
+  "platform": "metal",
+  "packages": {
+    "jax": "0.11.2",
+    "jaxlib": "0.11.2",
+    "metaljax": "0.11.9",
+    "numpy": "2.5.4"
+  },
+  "parameters": 10745088,
+  "dtype": "float32",
+  "train_sha256": "6ec305602a99ac2802745a134e1f5e33e2231b4855525b00b9aebb730ac2626f",
+  "scope": "Complete forward/backward, clipping and AdamW; input sampling/upload outside timer. Explicit NumPy masks match SQL CPU-mask mode. No extra SQL intermediate validation.",
+  "warm_seconds": 0.04017883350024931,
+  "rows": [
+    {
+      "iteration": 0,
+      "seconds": 3.133373958989978,
+      "loss": 4.221166610717773,
+      "lr": 9.900990099009901e-06
+    },
+    {
+      "iteration": 1,
+      "seconds": 0.04689070908352733,
+      "loss": 4.057880401611328,
+      "lr": 1.9801980198019803e-05
+    },
+    {
+      "iteration": 2,
+      "seconds": 0.03790816699620336,
+      "loss": 3.844763994216919,
+      "lr": 2.9702970297029702e-05
+    },
+    {
+      "iteration": 3,
+      "seconds": 0.0395258329808712,
+      "loss": 3.62751841545105,
+      "lr": 3.9603960396039605e-05
+    },
+    {
+      "iteration": 4,
+      "seconds": 0.036390624940395355,
+      "loss": 3.511723756790161,
+      "lr": 4.950495049504951e-05
+    }
+  ]
+}
