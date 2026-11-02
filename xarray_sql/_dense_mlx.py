@@ -103,6 +103,9 @@ class _Runtime:
 
     def finish_training(self, arrays, status):
         self.counts["gpu_training_executions"] += 1
+        if status is None:
+            mx.eval(arrays)
+            return
         mx.eval(arrays, status)
         if not self.boolean(status):
             raise ValueError(

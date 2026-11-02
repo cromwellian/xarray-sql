@@ -150,6 +150,10 @@ def _parser():
         type=Path,
         help="capture the second training step as a .gputrace",
     )
+    p.add_argument(
+        "--validation", choices=["full", "state", "none"], default="full"
+    )
+    p.add_argument("--freeze-context", action="store_true")
     return p
 
 
@@ -299,6 +303,10 @@ def _save(
 def main():
     parser = _parser()
     args = parser.parse_args()
+    if args.freeze_context and not args.compile_training:
+        parser.error("--freeze-context requires --compile-training")
+    if args.validation != "full":
+        args.resident = True
     if args.metal_capture and (args.backend != "dense_gpu" or mx is None):
         parser.error("--metal-capture requires MLX GPU execution")
     if args.discard_intermediates and args.verify_nanogpt:
@@ -402,6 +410,8 @@ def main():
                 "resident",
                 "compile_training",
                 "discard_intermediates",
+                "validation",
+                "freeze_context",
                 "metal_capture",
             }
             for key, value in vars(args).items():
@@ -498,6 +508,8 @@ def main():
             assignments=assignments,
             compile=args.compile_training,
             capture_intermediates=not args.discard_intermediates,
+            validation=args.validation,
+            freeze_context=args.freeze_context,
         )
 
     def load(name, value):
@@ -596,6 +608,7 @@ def main():
                             skip_eval=True,
                         )
             skip_eval = False
+            input_started = time.perf_counter()
             batch = _batch(data["train"], args, data_rng)
             masks = {} if args.gpu_dropout else _masks(args, mask_rng)
             load("batch", batch)
@@ -685,6 +698,8 @@ def main():
                 "loss": loss,
                 "lr": lr,
                 "seconds": seconds,
+                "input_seconds": started - input_started,
+                "iteration_seconds": seconds + started - input_started,
                 "tokens_per_second": args.batch_size
                 * args.block_size
                 / seconds,
