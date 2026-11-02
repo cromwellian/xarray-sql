@@ -71,6 +71,7 @@ class _Runtime:
         self.compiled = {}
         self.counts = Counter()
         self.tracing = False
+        self.direct_union = os.environ.get("XQL_MLX_DIRECT_UNION", "1") != "0"
 
     def owns(self, array):
         return isinstance(array, mx.array)
@@ -336,10 +337,6 @@ class _Runtime:
         result = mx.zeros(tuple(len(a) for a in axes), dtype=mx.float32)
         for part in parts:
             source = tuple(part.columns[k].tensor.axis for k in keys)
-            indexes = [
-                np.searchsorted(a.values, s.values)
-                for a, s in zip(axes, source)
-            ]
             shape = tuple(len(a) for a in source)
             if flags is not None:
                 mask = (
@@ -361,7 +358,24 @@ class _Runtime:
                 data = self.broadcast(value, col.tensor.axes, source, shape)
             valid = self.broadcast(mask.get(), mask.axes, source, shape)
             data = mx.where(valid, data, 0)
-            if axes:
+            if (
+                axes
+                and self.direct_union
+                and len(axes) == len(source)
+                and all(
+                    np.array_equal(a.values, s.values)
+                    for a, s in zip(axes, source)
+                )
+            ):
+                # A grouped branch has one value per coordinate. Matching
+                # ordered domains make its scatter the identity mapping.
+                result = result + data
+                self.counts["gpu_union_direct_adds"] += 1
+            elif axes:
+                indexes = [
+                    np.searchsorted(a.values, s.values)
+                    for a, s in zip(axes, source)
+                ]
                 grid = [
                     mx.array(
                         i.reshape(
@@ -374,6 +388,7 @@ class _Runtime:
                     for at, i in enumerate(indexes)
                 ]
                 result = result.at[tuple(grid)].add(data)
+                self.counts["gpu_union_scatter_adds"] += 1
             else:
                 result = result + data
         self.counts["gpu_union_reductions"] += 1
