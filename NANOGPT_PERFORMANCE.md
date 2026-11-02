@@ -1,5 +1,9 @@
 # NanoGPT SQL execution and training performance
 
+The [optimization-status and attention report](GPU_ATTENTION_HEADROOM.md)
+tracks the remaining compiler work and measures no-dropout forward/backward
+attention and complete training controls separately from the results here.
+
 Measured November 1, 2026, on Apple M5 Ultra (30 CPU cores, 64 GPU cores,
 256 GiB unified memory), macOS 27.0.1. GPU game contention was off for the
 final runs. This report covers the implementation and the measurements;
