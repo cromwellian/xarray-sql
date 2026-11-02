@@ -183,9 +183,9 @@ class DenseExecutor(SharedExecutor):
             self.ctx._write(tables)
             self._refresh()
             self._store.clear()
+            cache = _ComputedCache(self._max_cached_bytes)
             token = _EXECUTION.set(self._runtime)
             limit_token = _MAX_BYTES.set(self._max_array_bytes)
-            cache = _ComputedCache(self._max_cached_bytes)
             cache_token = _CACHE.set(cache)
             try:
                 overridden = (
@@ -221,6 +221,7 @@ class DenseExecutor(SharedExecutor):
                 _EXECUTION.reset(token)
                 _MAX_BYTES.reset(limit_token)
                 _CACHE.reset(cache_token)
+                self._counts.update(getattr(cache, "optimizations", {}))
                 self._counts["dense_cache_evictions"] += cache.evictions
                 self._counts["dense_peak_cached_bytes"] = max(
                     self._counts["dense_peak_cached_bytes"], cache.peak
