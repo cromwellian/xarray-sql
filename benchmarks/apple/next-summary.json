@@ -1,0 +1,148 @@
+{
+  "date": "2026-11-02",
+  "warm_scope": "Mean updates 2\u2013100; 10.7M parameters, batch 12, context 256, float32, GPU dropout; MLX_ENABLE_TF32=0. Single serial run per row, not a confidence interval.",
+  "runs": {
+    "baseline": {
+      "steps": 100,
+      "warm_seconds": 0.10898841834142615,
+      "first_seconds": 1.7066121659008786,
+      "last_memory": {
+        "active_bytes": 532343668,
+        "cache_bytes": 5084447247,
+        "peak_bytes": 4428988178
+      },
+      "timed_array_readback_bytes": 0,
+      "timed_exports": 0
+    },
+    "pruned": {
+      "steps": 100,
+      "warm_seconds": 0.10820338886108889,
+      "first_seconds": 1.649797625024803,
+      "last_memory": {
+        "active_bytes": 314772687,
+        "cache_bytes": 5188336590,
+        "peak_bytes": 4428987410
+      },
+      "timed_array_readback_bytes": 0,
+      "timed_exports": 0
+    },
+    "index": {
+      "steps": 100,
+      "warm_seconds": 0.10220401643098077,
+      "first_seconds": 1.5041832090355456,
+      "last_memory": {
+        "active_bytes": 314574460,
+        "cache_bytes": 5218042053,
+        "peak_bytes": 4429056014
+      },
+      "timed_array_readback_bytes": 0,
+      "timed_exports": 0
+    },
+    "index-repeat": {
+      "steps": 100,
+      "warm_seconds": 0.09568540528275524,
+      "first_seconds": 2.405947749968618,
+      "last_memory": {
+        "active_bytes": 314575228,
+        "cache_bytes": 5212547523,
+        "peak_bytes": 4428957710
+      },
+      "timed_array_readback_bytes": 0,
+      "timed_exports": 0
+    },
+    "pruned-repeat": {
+      "steps": 100,
+      "warm_seconds": 0.10088147810246381,
+      "first_seconds": 2.366936416947283,
+      "last_memory": {
+        "active_bytes": 314788348,
+        "cache_bytes": 5184963440,
+        "peak_bytes": 4429069330
+      },
+      "timed_array_readback_bytes": 0,
+      "timed_exports": 0
+    },
+    "matmul": {
+      "steps": 100,
+      "warm_seconds": 0.1302389411086386,
+      "first_seconds": 1.825118290958926,
+      "last_memory": {
+        "active_bytes": 314690636,
+        "cache_bytes": 4954709445,
+        "peak_bytes": 3807862214
+      },
+      "timed_array_readback_bytes": 0,
+      "timed_exports": 0
+    },
+    "index-matmul": {
+      "steps": 100,
+      "warm_seconds": 0.12314347348956749,
+      "first_seconds": 2.385587291093543,
+      "last_memory": {
+        "active_bytes": 314476748,
+        "cache_bytes": 4929375211,
+        "peak_bytes": 3807848898
+      },
+      "timed_array_readback_bytes": 0,
+      "timed_exports": 0
+    },
+    "buffer-tuning": {
+      "steps": 100,
+      "warm_seconds": 0.09452805094740759,
+      "first_seconds": 1.3775238329544663,
+      "last_memory": {
+        "active_bytes": 314555727,
+        "cache_bytes": 10408546101,
+        "peak_bytes": 8549652702
+      },
+      "timed_array_readback_bytes": 0,
+      "timed_exports": 0
+    }
+  },
+  "paired_index_speedups": [
+    1.0586999673751525,
+    1.054303713344307
+  ],
+  "checkpoint_checks": {
+    "pruned": {
+      "reference": "baseline",
+      "all_weights_and_moments_match": true,
+      "maximum_absolute_error": 2.384185791015625e-07
+    },
+    "index": {
+      "reference": "baseline",
+      "all_weights_and_moments_match": true,
+      "maximum_absolute_error": 2.384185791015625e-07
+    },
+    "index-repeat": {
+      "reference": "baseline",
+      "all_weights_and_moments_match": true,
+      "maximum_absolute_error": 2.384185791015625e-07
+    },
+    "pruned-repeat": {
+      "reference": "baseline",
+      "all_weights_and_moments_match": true,
+      "maximum_absolute_error": 2.384185791015625e-07
+    },
+    "matmul": {
+      "reference": "baseline",
+      "all_weights_and_moments_match": true,
+      "maximum_absolute_error": 2.384185791015625e-07
+    },
+    "index-matmul": {
+      "reference": "baseline",
+      "all_weights_and_moments_match": true,
+      "maximum_absolute_error": 2.384185791015625e-07
+    },
+    "buffer-tuning": {
+      "reference": "baseline",
+      "all_weights_and_moments_match": true,
+      "maximum_absolute_error": 2.384185791015625e-07
+    },
+    "production-checked": {
+      "reference": "verified",
+      "all_weights_and_moments_match": true,
+      "maximum_absolute_error": 1.1175870895385742e-08
+    }
+  }
+}

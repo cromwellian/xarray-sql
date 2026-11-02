@@ -1,0 +1,48 @@
+--- a/xarray_sql/_dense_mlx.py
++++ b/xarray_sql/_dense_mlx.py
+@@ -10,0 +11 @@
++import math
+@@ -230,0 +232,7 @@
++        if os.environ.get("XQL_MLX_DIRECT_INDEX") == "1" and (
++            int(domain[-1]) - int(domain[0]) == len(domain) - 1
++            and np.all(domain[1:] > domain[:-1])
++        ):
++            lo = mx.array(int(domain[0]), dtype=mx.int64)
++            hi = mx.array(int(domain[-1]), dtype=mx.int64)
++            return mx.clip(values, lo, hi) - lo, (values >= lo) & (values <= hi)
+@@ -288,0 +297,35 @@
++        if os.environ.get("XQL_MLX_MATMUL") == "1" and len(arrays) == 2:
++            left, right = labels
++            batch = [n for n in output if n in left and n in right]
++            summed = [n for n in left if n in right and n not in output]
++            rows = [n for n in output if n in left and n not in right]
++            cols = [n for n in output if n in right and n not in left]
++            if (
++                len(set(left)) == len(left)
++                and len(set(right)) == len(right)
++                and set(left) == set(batch + rows + summed)
++                and set(right) == set(batch + summed + cols)
++                and set(output) == set(batch + rows + cols)
++            ):
++                sizes = {
++                    n: size
++                    for a, names in zip(arrays, labels)
++                    for n, size in zip(names, a.shape)
++                }
++                batch_shape = tuple(sizes[n] for n in batch)
++                m = math.prod(sizes[n] for n in rows)
++                k = math.prod(sizes[n] for n in summed)
++                n = math.prod(sizes[n] for n in cols)
++                a = arrays[0].transpose(
++                    tuple(left.index(i) for i in batch + rows + summed)
++                )
++                b = arrays[1].transpose(
++                    tuple(right.index(i) for i in batch + summed + cols)
++                )
++                result = mx.matmul(
++                    a.reshape((*batch_shape, m, k)),
++                    b.reshape((*batch_shape, k, n)),
++                )
++                order = batch + rows + cols
++                result = result.reshape(tuple(sizes[i] for i in order))
++                return result.transpose(tuple(order.index(i) for i in output))
