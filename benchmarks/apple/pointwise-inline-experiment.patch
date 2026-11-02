@@ -1,0 +1,33 @@
+--- a/xarray_sql/_dense_mlx.py
++++ b/xarray_sql/_dense_mlx.py
+@@ -66,0 +67,10 @@
++def _evaluate_pointwise(signature, args):
++    values = []
++    for kind, children in signature:
++        if kind == "leaf":
++            values.append(args[children])
++        else:
++            values.append(_FUNCTIONS[kind](*(values[c] for c in children)))
++    return values[-1]
++
++
+@@ -74,0 +85,3 @@
++        self.inline_pointwise = (
++            os.environ.get("XQL_MLX_INLINE_POINTWISE", "1") != "0"
++        )
+@@ -203,0 +217,4 @@
++        if self.tracing and self.inline_pointwise:
++            # The outer training compiler owns fusion during its trace.
++            self.counts["gpu_inlined_pointwise"] += 1
++            return _evaluate_pointwise(signature, [self._mx(a) for a in leaves])
+@@ -207,9 +224 @@
+-                values = []
+-                for kind, children in signature:
+-                    if kind == "leaf":
+-                        values.append(args[children])
+-                    else:
+-                        values.append(
+-                            _FUNCTIONS[kind](*(values[c] for c in children))
+-                        )
+-                return values[-1]
++                return _evaluate_pointwise(signature, args)

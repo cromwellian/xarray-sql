@@ -16,6 +16,15 @@ float64. There is no replacement model or handwritten backward pass.
 
 ## Subsequent compiler pass, November 2
 
+The [predicate and accumulation report](GPU_PREDICATE_OPTIMIZATIONS.md)
+records the next increment: full-validation, GPU-dropout training improved
+87.56→63.91 ms and 85.58→61.27 ms in paired 100-update runs, **1.37–1.40×**
+for warm steps. The selected default normalizes Boolean expressions and
+uses direct additions for matching UNION domains. Stronger presence proofs
+remain opt-in after higher allocation measurements; pointwise inlining was
+discarded after a controlled regression. These measurements are for the
+10.7M-character model and do not replace the separate larger-model results.
+
 The [GPU compiler report](GPU_COMPILER_OPTIMIZATIONS.md) adds general
 expression sharing in EinFold without changing SQL, ddx formulas or
 precision. Matched 10.7M-parameter training runs improved warm updates

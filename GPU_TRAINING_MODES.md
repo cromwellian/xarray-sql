@@ -1,5 +1,11 @@
 # Training validation, frozen execution and a matched JAX–MLX control
 
+This predates the [graph-sharing](GPU_COMPILER_OPTIMIZATIONS.md) and
+[predicate/layout](GPU_PREDICATE_OPTIMIZATIONS.md) increments. With current
+code, disable those later choices using `EINFOLD_DENSE_OPTIMIZE=off`,
+`EINFOLD_DENSE_PREDICATES=off` and `XQL_MLX_DIRECT_UNION=0` when reproducing
+the earlier SQL dispatch configuration.
+
 Measured November 2, 2026, on Apple M5 Ultra (30 CPU cores, 64 GPU cores,
 256 GiB), macOS 27.0.1. These changes extend
 [the preceding GPU experiments](NEXT_GPU_OPTIMIZATIONS.md).

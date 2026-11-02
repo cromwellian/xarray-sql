@@ -1,5 +1,10 @@
 # Compiler optimization of SQL training graphs
 
+This records the first compiler increment. The subsequent
+[predicate/layout report](GPU_PREDICATE_OPTIMIZATIONS.md) adds more rewrites.
+With a current checkout, set `EINFOLD_DENSE_PREDICATES=off` and
+`XQL_MLX_DIRECT_UNION=0` to reproduce this report's earlier dispatch choices.
+
 [EinFold](https://github.com/xqlsystems/einfold), a tensor optimizer for SQL,
 now shares pure expressions across the compact training program produced
 by [ddx](https://github.com/xqlsystems/ddx), an automatic differentiator of
