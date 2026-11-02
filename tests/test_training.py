@@ -97,7 +97,11 @@ def test_training_failure_keeps_all_state(precision, capture):
     os.environ.get("MLX_ENABLE_TF32") != "0", reason="requires GPU"
 )
 @pytest.mark.parametrize("capture", [True, False])
-def test_compiled_training_uses_new_tokens_and_learning_rates(capture):
+@pytest.mark.parametrize("validation", ["full", "state", "none"])
+@pytest.mark.parametrize("freeze", [False, True])
+def test_compiled_training_uses_new_tokens_and_learning_rates(
+    capture, validation, freeze
+):
     ctx = Context()
     weights = np.arange(1, 7, dtype=float).reshape(3, 2)
     ctx.from_dataset("w", xr.Dataset({"v": (("tok", "e"), weights)}))
@@ -121,6 +125,8 @@ def test_compiled_training_uses_new_tokens_and_learning_rates(capture):
         assignments={"w": ("u", ["tok", "e", "v"])},
         compile=True,
         capture_intermediates=capture,
+        validation=validation,
+        freeze_context=freeze,
     )
     for tokens, lr in (([2, 2, 0], 0.1), ([1, 0, 1], 0.03), ([0, 0, 2], 0.07)):
         session.bind("batch", xr.Dataset({"tok": ("pos", tokens)}))
@@ -140,6 +146,13 @@ def test_compiled_training_uses_new_tokens_and_learning_rates(capture):
     with pytest.raises(ValueError, match="domain"):
         session.bind("batch", xr.Dataset({"tok": ("pos", [9, 0, 1])}))
     assert session.export("w")["w"].equals(before)
+
+    if freeze:
+        session.index_domains("batch", {"tok": ("w", "tok")})
+        with pytest.raises(
+            ValueError, match="frozen training structure changed"
+        ):
+            step()
 
 
 def test_training_rejects_schema_and_coordinate_changes():

@@ -9,6 +9,7 @@ their independent live-Dataset and Arrow snapshot contracts.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -390,6 +391,8 @@ class TrainingSession:
         loss_column="l",
         compile=False,
         capture_intermediates=True,
+        validation="full",
+        freeze_context=False,
     ):
         """Prepare one shared ddx backward followed by ordinary SQL statements.
 
@@ -398,13 +401,29 @@ class TrainingSession:
         All update SELECTs read the same old state. The primal loss is read
         from ddx's saved output, without an independent forward query.
         ``capture_intermediates=False`` retains only state and loss outputs;
-        intermediate exports are unavailable. All validation still runs.
+        intermediate exports are unavailable. ``validation="full"`` checks
+        every named intermediate output; ``"state"`` checks loss and published state;
+        ``"none"`` trusts numerical and row/NULL contracts and omits runtime
+        checks. Binding still validates input shapes, domains and values.
+        Trusted modes weaken rejection of invalid intermediate values.
+
+        ``freeze_context=True`` seals the compiled program against later
+        SQL catalog/settings/function changes: callers must leave that Context
+        unchanged and construct a new step after structural changes. Warm
+        execution checks the local generation instead of scanning DataFusion.
+        Numeric replacements through ``bind`` remain supported.
         """
+        if validation not in {"full", "state", "none"}:
+            raise ValueError("validation must be full, state or none")
+        if freeze_context and not compile:
+            raise ValueError("freeze_context requires compiled training")
         step = _TrainingStep(
             self, gradients, stages, updates, assignments, loss_column
         )
         step.compile = compile
         step.capture_intermediates = capture_intermediates
+        step.validation = validation
+        step.freeze_context = freeze_context
         return step
 
     def query(self, sql):
@@ -581,29 +600,50 @@ class _TrainingStep:
         runtime = owner._runtime
         if runtime is None:
             raise ValueError("compiled training requires float32 MLX execution")
-        sources = {
-            n: t
-            for n, t in sorted(session._tables.items())
-            if n not in session._dropouts
-        }
-        for item in sources.values():
-            if any(
-                c.tensor.axis is None and c.tensor.host_only
-                for c in item.table.columns.values()
-            ):
-                raise ValueError(
-                    "compiled integer inputs require explicit index_domains"
+        key = None if self.freeze_context else owner._backend.session_key()
+        guard = (owner._epoch, key, self.capture_intermediates, self.validation)
+        if (
+            self.freeze_context
+            and hasattr(self, "_compiled_guard")
+            and self._compiled_guard != guard
+        ):
+            raise ValueError(
+                "frozen training structure changed; prepare a new step"
+            )
+        if self.freeze_context and hasattr(self, "_input_slots"):
+            arrays = [
+                session._tables[name].table.columns[key].tensor.get()
+                for name, key in self._input_slots
+            ]
+            layouts = self._input_layouts
+        else:
+            sources = {
+                n: t
+                for n, t in sorted(session._tables.items())
+                if n not in session._dropouts
+            }
+            for item in sources.values():
+                if any(
+                    c.tensor.axis is None and c.tensor.host_only
+                    for c in item.table.columns.values()
+                ):
+                    raise ValueError(
+                        "compiled integer inputs require explicit index_domains"
+                    )
+            arrays, layouts = self._pack(sources)
+            if self.freeze_context:
+                slots = sorted(
+                    (index, name, key)
+                    for name, (_, _, columns) in layouts.items()
+                    for key, _, _, index, _ in columns
+                    if index is not None
                 )
-        arrays, layouts = self._pack(sources)
+                self._input_slots = [(name, key) for _, name, key in slots]
+                self._input_layouts = layouts
         if session._dropouts:
             arrays.append(
                 runtime.random_key(session._random_seed, session._random_step)
             )
-        guard = (
-            owner._epoch,
-            owner._backend.session_key(),
-            self.capture_intermediates,
-        )
         if getattr(self, "_compiled_guard", None) != guard:
 
             def function(*args):
@@ -632,10 +672,16 @@ class _TrainingStep:
                             **{("state", n): t for n, t in next_state.items()},
                         }
                     )
-                    values, flags = session._values_and_flags(
-                        [loss, *results.values()]
-                    )
-                    status = runtime.status(values, flags)
+                    if self.validation == "none":
+                        status = None
+                    else:
+                        checked = (
+                            [loss, *results.values()]
+                            if self.validation == "full"
+                            else [loss, *next_state.values()]
+                        )
+                        values, flags = session._values_and_flags(checked)
+                        status = runtime.status(values, flags)
                     return packed, status
                 finally:
                     owner._tracing = False
@@ -651,8 +697,9 @@ class _TrainingStep:
         owner._refresh()
         self._compiled_guard = (
             owner._epoch,
-            owner._backend.session_key(),
+            None if self.freeze_context else owner._backend.session_key(),
             self.capture_intermediates,
+            self.validation,
         )
         return loss, results, next_state
 
@@ -680,23 +727,40 @@ class _TrainingStep:
                 )
                 loss_table, results, next_state = self._build()
                 results.update(masks)
-                session._validate([loss_table, *results.values()])
+                if self.validation != "none":
+                    session._validate(
+                        [loss_table, *results.values()]
+                        if self.validation == "full"
+                        else [loss_table, *next_state.values()]
+                    )
+                elif session.executor._runtime is not None:
+                    runtime = session.executor._runtime
+                    arrays, _ = self._pack(
+                        {
+                            ("loss",): loss_table,
+                            **{("state", n): t for n, t in next_state.items()},
+                        }
+                    )
+                    runtime.finish_training(
+                        [value for value in arrays if runtime.owns(value)], None
+                    )
                 if not self.capture_intermediates:
                     results = {}
-            # Validation proved these full domains have no NULLs.
-            next_state = {
-                n: _DeviceTable(
-                    _Table(
-                        t.table.axes,
-                        [
-                            (k, _Column(c.tensor, _const(True)))
-                            for k, c in t.table.columns.items()
-                        ],
-                    ),
-                    t.schema,
-                )
-                for n, t in next_state.items()
-            }
+            # Compiled unpacking already restores the selected state contract.
+            if not getattr(self, "compile", False):
+                next_state = {
+                    n: _DeviceTable(
+                        _Table(
+                            t.table.axes,
+                            [
+                                (k, _Column(c.tensor, _const(True)))
+                                for k, c in t.table.columns.items()
+                            ],
+                        ),
+                        t.schema,
+                    )
+                    for n, t in next_state.items()
+                }
             loss = loss_table.table.resolve(None, self.loss_column).tensor.get()
             session._tables.update(next_state)
             session.version += 1
@@ -717,4 +781,15 @@ class _TrainingStep:
                 session, loss, results, session.version, delta
             )
 
+        if self.freeze_context and hasattr(self, "_function"):
+            with session.executor._lock:
+                if session._closed:
+                    raise RuntimeError("training session is closed")
+                started = time.perf_counter()
+                try:
+                    return execute()
+                finally:
+                    session.executor._times["dense_call_seconds"] += (
+                        time.perf_counter() - started
+                    )
         return session._invoke(execute)
