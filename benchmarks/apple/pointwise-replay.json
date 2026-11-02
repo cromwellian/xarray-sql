@@ -1,0 +1,130 @@
+{
+  "scope": "Fixed-input replay of a full forward/backward/optimizer graph; not a progressing training trajectory. ABBA groups in one process, 10 synchronized executions/group.",
+  "rows": [
+    {
+      "group": 0,
+      "variant": "nested",
+      "seconds_per_step": 0.059537120803724974
+    },
+    {
+      "group": 1,
+      "variant": "inline",
+      "seconds_per_step": 0.06476779580116272
+    },
+    {
+      "group": 2,
+      "variant": "inline",
+      "seconds_per_step": 0.06480400830041617
+    },
+    {
+      "group": 3,
+      "variant": "nested",
+      "seconds_per_step": 0.0595422749989666
+    },
+    {
+      "group": 4,
+      "variant": "nested",
+      "seconds_per_step": 0.05950660830130801
+    },
+    {
+      "group": 5,
+      "variant": "inline",
+      "seconds_per_step": 0.06501129579264671
+    },
+    {
+      "group": 6,
+      "variant": "inline",
+      "seconds_per_step": 0.06510631669079885
+    },
+    {
+      "group": 7,
+      "variant": "nested",
+      "seconds_per_step": 0.059350695798639205
+    },
+    {
+      "group": 8,
+      "variant": "nested",
+      "seconds_per_step": 0.059556016605347394
+    },
+    {
+      "group": 9,
+      "variant": "inline",
+      "seconds_per_step": 0.06479930839268491
+    },
+    {
+      "group": 10,
+      "variant": "inline",
+      "seconds_per_step": 0.06518658340210096
+    },
+    {
+      "group": 11,
+      "variant": "nested",
+      "seconds_per_step": 0.05946042090654373
+    },
+    {
+      "group": 12,
+      "variant": "nested",
+      "seconds_per_step": 0.0595313583035022
+    },
+    {
+      "group": 13,
+      "variant": "inline",
+      "seconds_per_step": 0.06567684160545469
+    },
+    {
+      "group": 14,
+      "variant": "inline",
+      "seconds_per_step": 0.06470206250669434
+    },
+    {
+      "group": 15,
+      "variant": "nested",
+      "seconds_per_step": 0.059800904209259896
+    },
+    {
+      "group": 16,
+      "variant": "nested",
+      "seconds_per_step": 0.05973869590088725
+    },
+    {
+      "group": 17,
+      "variant": "inline",
+      "seconds_per_step": 0.06484666250180453
+    },
+    {
+      "group": 18,
+      "variant": "inline",
+      "seconds_per_step": 0.06492128329118714
+    },
+    {
+      "group": 19,
+      "variant": "nested",
+      "seconds_per_step": 0.059489399997983125
+    },
+    {
+      "group": 20,
+      "variant": "nested",
+      "seconds_per_step": 0.05946885419543833
+    },
+    {
+      "group": 21,
+      "variant": "inline",
+      "seconds_per_step": 0.06514925829833373
+    },
+    {
+      "group": 22,
+      "variant": "inline",
+      "seconds_per_step": 0.06466572920326144
+    },
+    {
+      "group": 23,
+      "variant": "nested",
+      "seconds_per_step": 0.05950905829668045
+    }
+  ],
+  "mean_seconds": {
+    "nested": 0.0595409506931901,
+    "inline": 0.06496976214887885
+  },
+  "max_output_absolute_difference": 1.862645149230957e-09
+}

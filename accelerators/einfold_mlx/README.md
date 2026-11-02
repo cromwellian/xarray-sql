@@ -17,10 +17,13 @@ DataFusion plans until physical planning, so ddx can serialize them through
 Substrait. MLX only evaluates arithmetic inside those plans.
 
 The released EinFold Python API has no external executor hook. The optional
-builder pins the feature commit `23fc63d71badce02429e825ce3e1a37ce4bfdec7` in the [EinFold feature fork](https://github.com/cromwellian/einfold),
+builder pins the feature commit `ed0a982e661decdb6f36c6523f4e63ed472d7933` in the [EinFold feature fork](https://github.com/cromwellian/einfold),
 which contains the native bridge, compact array module and invocation-local
 expression sharing. The [compiler report](../../GPU_COMPILER_OPTIMIZATIONS.md)
-documents measured training gains and startup/memory tradeoffs. Its tested base
+documents that first increment; the
+[predicate report](../../GPU_PREDICATE_OPTIMIZATIONS.md) covers subsequent
+Boolean normalization, opt-in count-presence proofs and GPU accumulation.
+Its tested base
 is `39b25210d3b39027ef91584383fb114dfa8a4a48` (Python 0.2.0). Historical
 benchmark wheels were labeled `0.2.0+xqlmlx.6`; the contributed source retains
 version 0.2.0. This feature is not in the ordinary PyPI wheel yet. The
