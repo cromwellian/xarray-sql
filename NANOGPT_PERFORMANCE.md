@@ -14,6 +14,18 @@ to compact array programs, and [MLX](https://github.com/ml-explore/mlx)
 executes float32 arithmetic on Apple's GPU. CPU execution uses NumPy
 float64. There is no replacement model or handwritten backward pass.
 
+## Subsequent compiler pass, November 2
+
+The [GPU compiler report](GPU_COMPILER_OPTIMIZATIONS.md) adds general
+expression sharing in EinFold without changing SQL, ddx formulas or
+precision. Matched 10.7M-parameter training runs improved warm updates
+1.07–1.11× with CPU dropout masks, and 1.055× with GPU dropout/full
+validation. The latter's first step regressed 1.37→2.22 seconds, making its
+100-update total slightly slower; longer runs amortize that cost. Actual
+GPU peak allocation varied, so no reliable physical-memory gain is claimed.
+Optional count proofs and a discarded contraction-sharing experiment are
+reported separately. These ratios must not be multiplied into older runs.
+
 ## Setup, plan reuse and CPU overhead
 
 | Change | Reason and observed improvement |

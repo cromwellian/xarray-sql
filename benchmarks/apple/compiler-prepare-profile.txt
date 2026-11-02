@@ -1,0 +1,80 @@
+Mon Nov  2 11:07:58 2026    benchmarks/apple/compiler-prepare-profile.pstats
+
+         7910867 function calls (7714765 primitive calls) in 3.980 seconds
+
+   Ordered by: cumulative time
+   List reduced from 7705 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+   1848/1    0.020    0.000    3.986    3.986 {built-in method builtins.exec}
+        1    0.000    0.000    3.986    3.986 03_shakespeare.py:1(<module>)
+        1    0.001    0.001    3.227    3.227 03_shakespeare.py:303(main)
+       53    0.002    0.000    2.275    0.043 training.py:171(_invoke)
+       53    0.001    0.000    2.273    0.043 dense.py:180(_invoke)
+       53    0.000    0.000    2.270    0.043 training.py:175(execute)
+      182    0.002    0.000    2.036    0.011 __init__.py:1(<module>)
+        2    0.000    0.000    1.806    0.903 training.py:706(__call__)
+        2    0.000    0.000    1.805    0.902 training.py:709(execute)
+        2    0.154    0.077    1.805    0.902 training.py:598(_compiled_build)
+        1    0.000    0.000    1.394    1.394 training.py:649(function)
+        1    0.000    0.000    1.391    1.391 training.py:499(_build)
+        1    0.000    0.000    1.186    1.186 __init__.py:277(run)
+        1    0.153    0.153    1.186    1.186 {built-in method ddxdb._ddxdb._prepare}
+  2198/21    0.003    0.000    0.900    0.043 <frozen importlib._bootstrap>:1349(_find_and_load)
+  1721/21    0.002    0.000    0.900    0.043 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+  1306/15    0.001    0.000    0.899    0.060 <frozen importlib._bootstrap_external>:993(exec_module)
+  1513/18    0.002    0.000    0.899    0.050 <frozen importlib._bootstrap>:911(_load_unlocked)
+  3823/36    0.002    0.000    0.897    0.025 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+      409    0.000    0.000    0.800    0.002 dense.py:54(run)
+      409    0.000    0.000    0.799    0.002 dense_program.py:1495(run)
+16063/409    0.038    0.000    0.799    0.002 dense_program.py:1496(visit)
+  837/109    0.001    0.000    0.770    0.007 {built-in method builtins.__import__}
+ 2836/684    0.001    0.000    0.761    0.001 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+      304    0.000    0.000    0.673    0.002 dense.py:70(materialize_compiled)
+28079/2947    0.015    0.000    0.345    0.000 dense_program.py:160(get)
+        1    0.000    0.000    0.336    0.336 03_shakespeare.py:521(download)
+       73    0.001    0.000    0.272    0.004 training.py:183(_seal)
+     2858    0.023    0.000    0.271    0.000 dense_program.py:974(_join)
+ 2642/488    0.007    0.000    0.255    0.001 _dense_mlx.py:182(pointwise)
+
+
+Mon Nov  2 11:07:58 2026    benchmarks/apple/compiler-prepare-profile.pstats
+
+         7910867 function calls (7714765 primitive calls) in 3.980 seconds
+
+   Ordered by: internal time
+   List reduced from 7705 to 119 due to restriction <'dense_program.py'>
+   List reduced from 119 to 12 due to restriction <12>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       24    0.135    0.006    0.230    0.010 dense_program.py:546(arrow)
+105451/88417    0.051    0.000    0.169    0.000 dense_program.py:788(_expr)
+   165611    0.047    0.000    0.093    0.000 dense_program.py:780(_key)
+    87322    0.042    0.000    0.072    0.000 dense_program.py:77(_node)
+    92432    0.041    0.000    0.113    0.000 dense_program.py:230(rename)
+16063/409    0.038    0.000    0.799    0.002 dense_program.py:1496(visit)
+     4843    0.036    0.000    0.066    0.000 dense_program.py:628(_sum)
+    37114    0.029    0.000    0.107    0.000 dense_program.py:288(_op)
+     2858    0.023    0.000    0.271    0.000 dense_program.py:974(_join)
+    26937    0.021    0.000    0.022    0.000 dense_program.py:119(<genexpr>)
+ 3225/945    0.018    0.000    0.217    0.000 dense_program.py:656(compute)
+     5917    0.018    0.000    0.188    0.000 dense_program.py:1534(<lambda>)
+
+
+Mon Nov  2 11:07:58 2026    benchmarks/apple/compiler-prepare-profile.pstats
+
+         7910867 function calls (7714765 primitive calls) in 3.980 seconds
+
+   Ordered by: cumulative time
+   List reduced from 7705 to 52 due to restriction <'training.py'>
+   List reduced from 52 to 8 due to restriction <8>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       53    0.002    0.000    2.275    0.043 training.py:171(_invoke)
+       53    0.000    0.000    2.270    0.043 training.py:175(execute)
+        2    0.000    0.000    1.806    0.903 training.py:706(__call__)
+        2    0.000    0.000    1.805    0.902 training.py:709(execute)
+        2    0.154    0.077    1.805    0.902 training.py:598(_compiled_build)
+        1    0.000    0.000    1.394    1.394 training.py:649(function)
+        1    0.000    0.000    1.391    1.391 training.py:499(_build)
+       73    0.001    0.000    0.272    0.004 training.py:183(_seal)

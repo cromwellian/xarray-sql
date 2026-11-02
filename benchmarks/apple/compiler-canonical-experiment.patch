@@ -1,0 +1,50 @@
+--- a/python/einfold/dense_program.py
++++ b/python/einfold/dense_program.py
+@@ -38 +38 @@
+-        mode = os.environ.get("EINFOLD_DENSE_OPTIMIZE", "cse")
++        mode = os.environ.get("EINFOLD_DENSE_OPTIMIZE", "all")
+@@ -89,0 +90,29 @@
++        cache.nodes[signature] = result
++    return result
++
++
++def _contraction(
++    factors, labels, output, repeated, bound, product_count, compute
++):
++    """Canonicalize positional contractions across logical axis renames."""
++    cache = _CACHE.get()
++    roots = []
++    for factor in factors:
++        while factor.kind == "rename":
++            factor = factor.args[0]
++        roots.append(factor)
++    signature = (
++        "contraction",
++        tuple(roots),
++        tuple(tuple(labels[a] for a in f.axes) for f in factors),
++        tuple(labels[a] for a in output),
++        repeated,
++        bound,
++        product_count,
++    )
++    if cache is not None and cache.cse and signature in cache.nodes:
++        cache.optimizations["dense_contraction_cse_hits"] += 1
++        parent = cache.nodes[signature]
++        return parent.rename(dict(zip(parent.axes, output)))
++    result = _Tensor("reduce", output, factors, value=compute)
++    if cache is not None and cache.cse and len(cache.nodes) < 32768:
+@@ -712,2 +741,3 @@
+-    result = _node(
+-        "reduce",
++    result = _contraction(
++        factors,
++        labels,
+@@ -715,4 +745,4 @@
+-        factors,
+-        value=compute,
+-        # Product provenance also determines narrow-integer overflow checks.
+-        key=(tuple(row_axes), tuple(kept), repeated, len(_factors(value)) > 1),
++        repeated,
++        math.prod(len(a) for a in row_axes if a not in kept),
++        len(_factors(value)),
++        compute,
