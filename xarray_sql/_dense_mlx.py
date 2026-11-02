@@ -228,6 +228,18 @@ class _Runtime:
         if int(domain.min()) < -(1 << 63) or int(domain.max()) >= (1 << 63):
             raise _Decline("GPU index domain is outside exact int64 range")
         domain = domain.astype(np.int64, copy=False)
+        # A proven contiguous domain maps integer labels directly to offsets.
+        # Clip before subtraction to avoid int64 overflow for invalid labels;
+        # validity still reflects the original values.
+        if (
+            os.environ.get("XQL_MLX_DIRECT_INDEX", "1") != "0"
+            and values.dtype == mx.int64
+            and int(domain[-1]) - int(domain[0]) == len(domain) - 1
+            and np.all(domain[1:] > domain[:-1])
+        ):
+            lo = mx.array(int(domain[0]), dtype=mx.int64)
+            hi = mx.array(int(domain[-1]), dtype=mx.int64)
+            return mx.clip(values, lo, hi) - lo, (values >= lo) & (values <= hi)
         order = np.argsort(domain)
         sorted_domain = mx.array(domain[order])
         at = mx.minimum(mx.searchsorted(sorted_domain, values), len(domain) - 1)

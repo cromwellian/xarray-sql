@@ -1,0 +1,9 @@
+{
+  "scope": "Whole diagnostic process: ten steps, one evaluation batch per split, initialization included. No warm-step attribution or kernel-family names in exported interval labels.",
+  "python_gpu_interval_counts": {
+    "compute": 3403
+  },
+  "compute_interval_union_seconds": 0.915720049,
+  "trace": "/private/tmp/xql-next-metal.trace",
+  "step_capture": "/private/tmp/xql-next-step.gputrace"
+}
