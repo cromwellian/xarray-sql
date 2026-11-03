@@ -19,7 +19,7 @@ The upstream MIT notice is retained in
 This is a **single-device float32 port**, not the current record recipe or
 an official speedrun entry. Short throughput runs and validation-to-target
 runs are separate modes. A short run never claims to reach the target.
-The numerical comparison boundaries are described below.
+See [local measurements and numerical limits](MODDED_NANOGPT_PERFORMANCE.md).
 
 ## Model and training contract
 
