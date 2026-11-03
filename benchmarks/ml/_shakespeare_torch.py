@@ -55,7 +55,11 @@ class _TorchReference:
                 self.name = name
 
             def forward(self, x):
-                return x * owner.masks[self.name] if self.training else x
+                return (
+                    x * owner.masks[self.name]
+                    if self.training and owner.args.dropout > 0
+                    else x
+                )
 
         self.model.transformer.drop = _Mask("embed_drop")
         for layer, block in enumerate(self.model.transformer.h):
