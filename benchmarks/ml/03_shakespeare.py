@@ -212,6 +212,9 @@ def _batch(values, args, rng):
 
 
 def _masks(args, rng):
+    if args.dropout == 0:
+        return {}
+
     def mask(dims, shape):
         scale = (rng.random(shape) >= args.dropout).astype(np.float64) / (
             1 - args.dropout
@@ -457,7 +460,9 @@ def main():
     for name, value in _masks(args, np.random.default_rng(0)).items():
         host.load(name, value)
     host.execute(
-        _MODEL.model(exact_gelu=True, dropout=True, grouped_softmax=True)
+        _MODEL.model(
+            exact_gelu=True, dropout=args.dropout > 0, grouped_softmax=True
+        )
     )
     # Register the second view directly: both graphs persist across evaluation.
     eval_model = _MODEL.model(
@@ -482,7 +487,7 @@ def main():
                 "batch", {"tok": ("wte", "tok"), "next": ("wte", "tok")}
             )
             resident.bind("batch")
-        if args.gpu_dropout:
+        if args.gpu_dropout and args.dropout > 0:
             resident.dropout(
                 [name for name in host._tables if name.endswith("drop")],
                 probability=args.dropout,
@@ -663,7 +668,7 @@ def main():
                     mx.metal.stop_capture()
             if reference:
                 if resident is not None:
-                    if args.gpu_dropout:
+                    if args.gpu_dropout and args.dropout > 0:
                         mask_tables = result.export(
                             *(
                                 name

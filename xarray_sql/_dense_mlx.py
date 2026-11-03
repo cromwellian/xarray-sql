@@ -16,6 +16,8 @@ import mlx.core as mx
 import numpy as np
 from einfold.dense_program import _OPS, _align, _Decline, _op
 
+from . import _dense_attention
+
 
 def _remainder(a, b):
     result = mx.remainder(a, b)
@@ -72,6 +74,10 @@ class _Runtime:
         self.counts = Counter()
         self.tracing = False
         self.direct_union = os.environ.get("XQL_MLX_DIRECT_UNION", "1") != "0"
+        attention = os.environ.get("XQL_MLX_ATTENTION", "0")
+        if attention not in {"0", "off", "forward", "1", "all"}:
+            raise ValueError("XQL_MLX_ATTENTION must be off, forward or all")
+        self.fast_attention = attention not in {"0", "off"}
 
     def owns(self, array):
         return isinstance(array, mx.array)
@@ -218,6 +224,62 @@ class _Runtime:
             self.counts["gpu_fused_programs"] += 1
         self.counts["gpu_fused_executions"] += 1
         return self.compiled[signature](*(self._mx(a) for a in leaves))
+
+    def reduction(self, tensor):
+        if not self.fast_attention:
+            return None
+        match = _dense_attention._match(tensor)
+        if match is None:
+            return None
+        prepared = self._attention_inputs(match)
+        if prepared is None:
+            return None
+        arrays, mask = prepared
+        try:
+            result = mx.fast.scaled_dot_product_attention(
+                *arrays, scale=match.scale, mask=mask, force_fused=True
+            )
+        except ValueError:
+            return None
+        batch = tuple(len(a) for a in match.batch)
+        result = result.reshape(
+            (*batch, len(match.query), len(match.value_feature))
+        )
+        source = (*match.batch, match.query, match.value_feature)
+        self.counts["gpu_attention_forwards"] += 1
+        return result.transpose(tuple(source.index(a) for a in match.output))
+
+    def _attention_inputs(self, match):
+        batch = tuple(len(a) for a in match.batch)
+        leading = (*batch, 1) if len(batch) == 1 else batch or (1, 1)
+        arrays = []
+        for view, axes in [
+            (match.q, (*match.batch, match.query, match.feature)),
+            (match.k, (*match.batch, match.key, match.feature)),
+            (match.v, (*match.batch, match.key, match.value_feature)),
+        ]:
+            array = view.node.get()
+            if not self.owns(array) or array.dtype != mx.float32:
+                return None
+            array = array.transpose(tuple(view.axes().index(a) for a in axes))
+            arrays.append(array.reshape((*leading, *array.shape[-2:])))
+        mask = match.mask
+        if mask.all():
+            mask = None
+        elif len(match.query) == len(match.key) and np.array_equal(
+            mask,
+            np.broadcast_to(
+                np.arange(len(match.query))[:, None]
+                >= np.arange(len(match.key))[None, :],
+                mask.shape,
+            ),
+        ):
+            mask = "causal"
+        else:
+            mask = mx.array(
+                mask.reshape((*leading, len(match.query), len(match.key)))
+            )
+        return arrays, mask
 
     def take(self, data, indexes, axis):
         return (
