@@ -1,0 +1,33 @@
+--- a/xarray_sql/_dense_mlx.py
++++ b/xarray_sql/_dense_mlx.py
+@@ -103,0 +104 @@
++        self.attention_aux = os.environ.get("XQL_MLX_PRIMAL_AUX", "0") != "0"
+@@ -271,3 +272,25 @@
+-            result = mx.fast.scaled_dot_product_attention(
+-                *arrays, scale=match.scale, mask=mask, force_fused=True
+-            )
++
++            def primitive(q, k, v):
++                return mx.fast.scaled_dot_product_attention(
++                    q, k, v, scale=match.scale, mask=mask, force_fused=True
++                )
++
++            if (
++                self.attention_aux
++                and self.tracing
++                and self.fast_attention_backward
++                and len(match.query) >= 32
++            ):
++                out, _ = mx.vjp(
++                    primitive,
++                    arrays,
++                    [
++                        mx.zeros(
++                            (*arrays[0].shape[:-1], arrays[2].shape[-1]),
++                            dtype=mx.float32,
++                        )
++                    ],
++                )
++                result = out[0]
++            else:
++                result = primitive(*arrays)

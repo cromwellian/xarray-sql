@@ -1,0 +1,35 @@
+{
+  "scope": "Fixed-input replay of a full forward/backward/optimizer graph; not a progressing training trajectory. ABBA groups in one process.",
+  "repetitions_per_group": 10,
+  "rows": [
+    {"group": 0, "variant": "ordinary", "seconds_per_step": 0.03478591659804806},
+    {"group": 1, "variant": "auxiliary", "seconds_per_step": 0.03433315840084106},
+    {"group": 2, "variant": "auxiliary", "seconds_per_step": 0.03434608329553157},
+    {"group": 3, "variant": "ordinary", "seconds_per_step": 0.034753754106350246},
+    {"group": 4, "variant": "ordinary", "seconds_per_step": 0.03500696250703186},
+    {"group": 5, "variant": "auxiliary", "seconds_per_step": 0.03526243750238791},
+    {"group": 6, "variant": "auxiliary", "seconds_per_step": 0.03464701250195503},
+    {"group": 7, "variant": "ordinary", "seconds_per_step": 0.03518681250279769},
+    {"group": 8, "variant": "ordinary", "seconds_per_step": 0.034859458298888056},
+    {"group": 9, "variant": "auxiliary", "seconds_per_step": 0.0346899208961986},
+    {"group": 10, "variant": "auxiliary", "seconds_per_step": 0.03460811249678954},
+    {"group": 11, "variant": "ordinary", "seconds_per_step": 0.03485724169295281},
+    {"group": 12, "variant": "ordinary", "seconds_per_step": 0.03485768750542775},
+    {"group": 13, "variant": "auxiliary", "seconds_per_step": 0.03477800410473719},
+    {"group": 14, "variant": "auxiliary", "seconds_per_step": 0.03465212500886992},
+    {"group": 15, "variant": "ordinary", "seconds_per_step": 0.035101191606372595},
+    {"group": 16, "variant": "ordinary", "seconds_per_step": 0.03525448750006035},
+    {"group": 17, "variant": "auxiliary", "seconds_per_step": 0.03470452090259642},
+    {"group": 18, "variant": "auxiliary", "seconds_per_step": 0.03492007090244442},
+    {"group": 19, "variant": "ordinary", "seconds_per_step": 0.03509067500708625},
+    {"group": 20, "variant": "ordinary", "seconds_per_step": 0.03520859170239419},
+    {"group": 21, "variant": "auxiliary", "seconds_per_step": 0.034856637509074063},
+    {"group": 22, "variant": "auxiliary", "seconds_per_step": 0.034941883303690704},
+    {"group": 23, "variant": "ordinary", "seconds_per_step": 0.035200225003063676}
+  ],
+  "mean_seconds": {
+    "ordinary": 0.03501358366920613,
+    "auxiliary": 0.0347283305687597
+  },
+  "max_output_absolute_difference": 3.725290298461914e-09
+}
