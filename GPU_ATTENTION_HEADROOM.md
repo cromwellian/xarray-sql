@@ -1,5 +1,9 @@
 # GPU optimization status and attention headroom
 
+This records the pre-integration controls. The subsequent
+[attention-lowering report](GPU_ATTENTION_LOWERING.md) documents the actual
+compiler integration and further group-domain improvements.
+
 November 2, 2026. Apple M5 Ultra, 30 CPU/64 GPU cores, 256 GiB,
 macOS 27.0.1, MLX 0.32.4, float32, `MLX_ENABLE_TF32=0`.
 [MLX](https://github.com/ml-explore/mlx) is Apple's array framework.
@@ -101,8 +105,9 @@ six layers/heads, width 384, batch 12, context 256, vocabulary 65, exact
 GELU, tied embeddings, clipped AdamW and the original 2,000-iteration
 learning-rate schedule. Each run performs exactly 100 updates without
 dropout. The SQL variant omits mask tables/operators in its benchmark-only
-generator; merely supplying `--dropout 0` to the ordinary recipe retains
-those operations. Production dropout behavior is unchanged.
+generator. At this measured parent revision, merely supplying `--dropout 0`
+to the ordinary recipe retained those operations; the subsequent integration
+removes them for zero-dropout training. Nonzero dropout retains its behavior.
 
 All controls use identical initial arrays and training batches, including
 matching evaluation batch RNG consumption. Native MLX does not execute

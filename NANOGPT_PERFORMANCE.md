@@ -1,5 +1,9 @@
 # NanoGPT SQL execution and training performance
 
+The [attention and group-proof integration](GPU_ATTENTION_LOWERING.md)
+adds actual SQL forward/backward kernel selection and further measured
+training improvements, with separate dropout/no-dropout comparisons.
+
 The [optimization-status and attention report](GPU_ATTENTION_HEADROOM.md)
 tracks the remaining compiler work and measures no-dropout forward/backward
 attention and complete training controls separately from the results here.

@@ -136,13 +136,6 @@ def _sql(args):
     )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    original = module._MODEL.model
-
-    def no_dropout(**kwargs):
-        return original(**{**kwargs, "dropout": False})
-
-    module._MODEL.model = no_dropout
-    module._masks = lambda arguments, rng: {}
     previous = sys.argv
     sys.argv = [
         str(source),
@@ -167,7 +160,6 @@ def _sql(args):
         module.main()
     finally:
         sys.argv = previous
-        module._MODEL.model = original
     rows = [
         json.loads(line)
         for line in (args.out_dir / "metrics.jsonl").read_text().splitlines()
@@ -180,6 +172,12 @@ def _sql(args):
                 "backend": "sql_ddx",
                 "dropout": 0,
                 "mask_operators_omitted": True,
+                "optimizations": {
+                    "group_proofs": os.environ.get(
+                        "EINFOLD_DENSE_GROUP_PROOFS", "1"
+                    ),
+                    "attention": os.environ.get("XQL_MLX_ATTENTION", "1"),
+                },
                 "rows": rows,
                 "warm_seconds": statistics.mean(r["seconds"] for r in rows[1:]),
                 "checkpoint": str(args.out_dir / "last.npz"),

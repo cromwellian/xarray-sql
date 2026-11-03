@@ -25,7 +25,8 @@ Sibling kernel outputs share the existing byte-bounded computed-value LRU.
 Eviction releases their cached owner and permits recomputation; there is
 no cross-step numerical cache. Additional backward arrays must fit the
 existing array bound. Inspection outputs and ordinary Arrow snapshots keep
-their contracts. Only explicit training inputs/state remain GPU-owned.
+their contracts. Persistent public state remains owned by the explicit
+training session.
 
 `XQL_MLX_ATTENTION=all` or `1` is now the default. `0`/`off` keeps generic
 execution and `forward` isolates the earlier forward-only extension.
