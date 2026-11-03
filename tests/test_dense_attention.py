@@ -14,6 +14,7 @@ pytest.importorskip("einfold.dense_program")
 from einfold.dense_program import _Decline
 
 from xarray_sql.dense import DenseExecutor
+from xarray_sql.training import TrainingSession
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("MLX_ENABLE_TF32") != "0",
@@ -138,6 +139,130 @@ def test_attention_and_ddx_gradients_keep_sql_semantics(
                     equal_nan=True,
                 )
             datasets["q"]["val"].values[:] *= 0.99
+
+
+@pytest.mark.parametrize("seed", range(3))
+def test_shared_projection_attention_training_keeps_sparse_target_gradients(
+    monkeypatch, seed
+):
+    rng = np.random.default_rng(seed)
+    parameters = {
+        "x": xr.Dataset(
+            {"val": (("b", "i", "e"), rng.normal(size=(1, 32, 8)) * 0.1)}
+        ),
+        **{
+            name: xr.Dataset(
+                {"val": (("e", "h", "c"), rng.normal(size=(8, 2, 64)) * 0.1)}
+            )
+            for name in ["wq", "wk", "wv"]
+        },
+        "out": xr.Dataset(
+            {"val": (("h", "c", "tok"), rng.normal(size=(2, 64, 5)) * 0.1)}
+        ),
+        "batch": xr.Dataset(
+            {
+                "next": (
+                    ("b", "i"),
+                    rng.integers(5, size=(1, 32), dtype=np.int64),
+                )
+            }
+        ),
+    }
+    projections = ",".join(
+        f"{name} AS (SELECT x.b,x.i AS {position},w.h,w.c,SUM(x.val*w.val) AS val FROM x JOIN {weight} w ON x.e=w.e GROUP BY x.b,x.i,w.h,w.c)"
+        for name, position, weight in [
+            ("q", "i", "wq"),
+            ("k", "j", "wk"),
+            ("v", "j", "wv"),
+        ]
+    )
+    prefix = (
+        "WITH "
+        + projections
+        + ","
+        + _query("causal").split("WITH ", 1)[1].split("loss AS", 1)[0]
+    )
+    sql = (
+        prefix
+        + """logits AS (
+      SELECT a.b,a.i,o.tok,SUM(a.val*o.val) AS val FROM attention a JOIN out o
+      ON a.h=o.h AND a.c=o.c GROUP BY a.b,a.i,o.tok),
+      maximum_loss AS (SELECT b,i,ddx_stop_gradient(MAX(val)) AS m FROM logits GROUP BY b,i),
+      denominator_loss AS (SELECT l.b,l.i,MAX(m.m)+ln(SUM(exp(l.val-m.m))) AS z
+        FROM logits l JOIN maximum_loss m ON l.b=m.b AND l.i=m.i GROUP BY l.b,l.i),
+      loss AS (SELECT AVG(z.z-l.val) AS l FROM denominator_loss z JOIN batch t
+        ON z.b=t.b AND z.i=t.i JOIN logits l ON z.b=l.b AND z.i=l.i AND l.tok=t.next)
+    """
+    )
+    gradients = {
+        name + "_g": sql
+        + f"SELECT {','.join(parameters[name].dims)},grad(loss,val) AS val FROM {name} ORDER BY {','.join(parameters[name].dims)}"
+        for name in parameters
+        if name != "batch"
+    }
+    updates = {
+        name
+        + "_u": f"SELECT {','.join('p.' + d for d in parameters[name].dims)},p.val-0.01*g.val AS val FROM {name} p JOIN {name}_g g ON "
+        + " AND ".join(f"p.{d}=g.{d}" for d in parameters[name].dims)
+        for name in parameters
+        if name != "batch"
+    }
+    variants = []
+    for enabled in ["0", "1"]:
+        monkeypatch.setenv("XQL_MLX_ATTENTION", enabled)
+        ctx = Context()
+        for name, dataset in parameters.items():
+            ctx.from_dataset(name, dataset)
+        session = TrainingSession(
+            ctx, max_cached_bytes=16384 if seed == 0 else 1 << 24
+        )
+        for name in parameters:
+            session.bind(name)
+        session.index_domains("batch", {"next": ("out", "tok")})
+        session.bind("batch")
+        step = session.prepare_step(
+            gradients=gradients,
+            stages={},
+            updates=updates,
+            assignments={
+                name: (name + "_u", [*parameters[name].dims, "val"])
+                for name in parameters
+                if name != "batch"
+            },
+            compile=True,
+            freeze_context=True,
+        )
+        variants.append((session, step))
+    try:
+        for _ in range(5):
+            results = [step() for _, step in variants]
+            np.testing.assert_allclose(
+                float(results[0].loss),
+                float(results[1].loss),
+                atol=3e-5,
+                rtol=3e-5,
+            )
+            snapshots = [result.export(*gradients) for result in results]
+            states = [
+                session.export(
+                    *(name for name in parameters if name != "batch")
+                )
+                for session, _ in variants
+            ]
+            for a, e in [(snapshots[1], snapshots[0]), (states[1], states[0])]:
+                for name in e:
+                    assert a[name].schema == e[name].schema
+                    for ac, ec in zip(a[name].columns, e[name].columns):
+                        assert (
+                            ac.is_null().to_pylist() == ec.is_null().to_pylist()
+                        )
+                        np.testing.assert_allclose(
+                            ac.to_numpy(), ec.to_numpy(), atol=3e-5, rtol=3e-5
+                        )
+        assert variants[1][0].statistics().get("gpu_attention_vjps", 0) > 0
+    finally:
+        for session, _ in variants:
+            session.close()
 
 
 @pytest.mark.parametrize("key_length", [17, 48])

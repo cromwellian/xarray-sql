@@ -11,12 +11,33 @@ from __future__ import annotations
 import os
 import string
 from collections import Counter
+from dataclasses import dataclass, replace
+from weakref import WeakKeyDictionary
 
 import mlx.core as mx
 import numpy as np
-from einfold.dense_program import _OPS, _align, _Decline, _op
+from einfold.dense_program import (
+    _CACHE,
+    _MAX_BYTES,
+    _OPS,
+    _align,
+    _Decline,
+    _op,
+    _Tensor,
+)
 
-from . import _dense_attention
+from . import _dense_adjoint, _dense_attention, _dense_proofs
+
+
+@dataclass
+class _AttentionVJP:
+    attention: object
+    cotangent: object
+    gradients: list
+
+    @property
+    def nbytes(self):
+        return sum(g.nbytes for g in self.gradients)
 
 
 def _remainder(a, b):
@@ -74,10 +95,12 @@ class _Runtime:
         self.counts = Counter()
         self.tracing = False
         self.direct_union = os.environ.get("XQL_MLX_DIRECT_UNION", "1") != "0"
-        attention = os.environ.get("XQL_MLX_ATTENTION", "0")
+        attention = os.environ.get("XQL_MLX_ATTENTION", "1")
         if attention not in {"0", "off", "forward", "1", "all"}:
             raise ValueError("XQL_MLX_ATTENTION must be off, forward or all")
         self.fast_attention = attention not in {"0", "off"}
+        self.fast_attention_backward = attention in {"1", "all"}
+        self.attention_cache = WeakKeyDictionary()
 
     def owns(self, array):
         return isinstance(array, mx.array)
@@ -228,6 +251,15 @@ class _Runtime:
     def reduction(self, tensor):
         if not self.fast_attention:
             return None
+        if self.fast_attention_backward:
+            gradient = _dense_adjoint._match(tensor)
+            if gradient is not None:
+                result = self._attention_gradient(gradient)
+                if result is not None:
+                    return result
+            result = self._attention_value_gradient(tensor)
+            if result is not None:
+                return result
         match = _dense_attention._match(tensor)
         if match is None:
             return None
@@ -280,6 +312,180 @@ class _Runtime:
                 mask.reshape((*leading, len(match.query), len(match.key)))
             )
         return arrays, mask
+
+    def _attention_gradient(self, gradient):
+        cache = _CACHE.get()
+        if cache is None or os.environ.get("MLX_SDPA_VJP_FALLBACK", "0") != "0":
+            return None
+        match, dy = gradient.attention, gradient.cotangent
+        layouts = [
+            (match.q, (*match.batch, match.query, match.feature)),
+            (match.k, (*match.batch, match.key, match.feature)),
+            (match.v, (*match.batch, match.key, match.value_feature)),
+            (dy, (*match.batch, match.query, match.value_feature)),
+        ]
+        key = (
+            match.exponential.node,
+            match.denominator.node,
+            None
+            if match.gate is None
+            else (
+                match.gate.node,
+                tuple(
+                    match.gate.axes().index(a)
+                    if a in match.gate.axes()
+                    else None
+                    for a in (*match.batch, match.query)
+                ),
+            ),
+            tuple(
+                (v.node, tuple(v.axes().index(a) for a in axes))
+                for v, axes in layouts
+            ),
+        )
+        entries = self.attention_cache.setdefault(cache, {})
+        slot = entries.get(key)
+        record = None if slot is None else slot.cached
+        if record is None:
+            prepared = self._attention_inputs(match)
+            if prepared is None:
+                return None
+            arrays, mask = prepared
+            if any(a.size * 8 > _MAX_BYTES.get() for a in arrays):
+                return None
+            data = dy.node.get()
+            if not self.owns(data) or data.dtype != mx.float32:
+                return None
+            axes = layouts[-1][1]
+            data = data.transpose(
+                tuple(dy.axes().index(a) for a in axes)
+            ).reshape((*arrays[0].shape[:-1], arrays[2].shape[-1]))
+            if match.gate is not None:
+                gate = self.broadcast(
+                    match.gate.node.get(),
+                    match.gate.axes(),
+                    axes,
+                    tuple(len(a) for a in axes),
+                )
+                data = mx.where(gate.reshape(data.shape), data, 0)
+
+            def primitive(q, k, v):
+                return mx.fast.scaled_dot_product_attention(
+                    q, k, v, scale=match.scale, mask=mask, force_fused=True
+                )
+
+            try:
+                _, gradients = mx.vjp(primitive, arrays, [data])
+            except ValueError:
+                return None
+            # Share the sibling kernel outputs within the same byte-bounded
+            # LRU as ordinary tensors. Eviction clears this private carrier;
+            # the side table then contains metadata, not extra array owners.
+            slot = _Tensor("reduce")
+            slot.cached = _AttentionVJP(match, dy, gradients)
+            record = cache.remember(slot)
+            entries[key] = slot
+            self.counts["gpu_attention_vjps"] += 1
+        batch = tuple(len(a) for a in match.batch)
+        sequence = match.query if gradient.argument == 0 else match.key
+        if slot in cache.entries:
+            cache.entries.move_to_end(slot)
+        result = record.gradients[gradient.argument].reshape(
+            (*batch, len(sequence), len(match.feature))
+        )
+        self.counts["gpu_attention_gradient_outputs"] += 1
+        return result.transpose(
+            tuple(gradient.source.index(a) for a in gradient.output)
+        )
+
+    def _attention_value_gradient(self, tensor):
+        cache = _CACHE.get()
+        entries = (
+            self.attention_cache.get(cache, {}) if cache is not None else {}
+        )
+        root = _dense_attention._view(tensor)
+        info = root.node.reduction
+        if (
+            not entries
+            or info is None
+            or info.kind != "sum"
+            or info.repeated != 1
+        ):
+            return None
+        factors = _dense_attention._factors(root.child(info.value))
+        if len(factors) != 2:
+            return None
+        for weight, dy in (factors, factors[::-1]):
+            if weight.node.kind != "/":
+                continue
+            p, z = weight.args()
+            for slot in entries.values():
+                record = slot.cached
+                if record is None:
+                    continue
+                match = record.attention
+                if (
+                    p.node is not match.exponential.node
+                    or z.node is not match.denominator.node
+                    or dy.node is not record.cotangent.node
+                ):
+                    continue
+                mapping = dict(zip(match.exponential.axes(), p.axes()))
+                renamed_dy = dict(zip(record.cotangent.axes(), dy.axes()))
+                if any(
+                    renamed_dy[a] is not mapping[a]
+                    for a in (*match.batch, match.query)
+                ):
+                    continue
+                batch = tuple(mapping[a] for a in match.batch)
+                query, key = mapping[match.query], mapping[match.key]
+                feature = renamed_dy[match.value_feature]
+                if feature in {*batch, query, key}:
+                    continue
+                output = (*batch, key, feature)
+                if (
+                    set(root.axes()) != set(output)
+                    or set(root.axes(info.kept)) != set(output)
+                    or set(root.axes(info.row_axes))
+                    != {*batch, query, key, feature}
+                ):
+                    continue
+                gate = (
+                    None
+                    if match.gate is None
+                    else _dense_attention._view(
+                        match.gate.node,
+                        (
+                            (source, renamed_dy[target])
+                            for source, target in match.gate.mapping
+                        ),
+                    )
+                )
+                context = replace(
+                    match, batch=batch, query=query, key=key, gate=gate
+                )
+                mask = _dense_adjoint._mask(root.child(info.mask), context)
+                if mask is None or not np.array_equal(mask, match.mask):
+                    continue
+                if gate is not None:
+                    absent = _dense_proofs._mask(
+                        root.child(info.mask), context, truth=False
+                    )
+                    if absent is None or np.any(absent[match.mask] != 0):
+                        zero = _dense_adjoint._Polynomial(
+                            context, dy, truth=False
+                        )
+                        zero.symbols = []
+                        if zero.run(dy) != {}:
+                            continue
+                result = record.gradients[2].reshape(
+                    (*tuple(len(a) for a in batch), len(key), len(feature))
+                )
+                self.counts["gpu_attention_gradient_outputs"] += 1
+                return result.transpose(
+                    tuple(output.index(a) for a in root.axes())
+                )
+        return None
 
     def take(self, data, indexes, axis):
         return (
