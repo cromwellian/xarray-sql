@@ -1,5 +1,10 @@
 # NanoGPT SQL execution and training performance
 
+The [historical Modded-NanoGPT benchmark](MODDED_NANOGPT.md) adds a separate
+123.6M-parameter FineWeb/Muon recipe and matched upstream PyTorch control.
+Its [measurements](MODDED_NANOGPT_PERFORMANCE.md) keep throughput, validation
+and numerical-state parity separate from these Shakespeare results.
+
 The [attention and group-proof integration](GPU_ATTENTION_LOWERING.md)
 adds actual SQL forward/backward kernel selection and further measured
 training improvements, with separate dropout/no-dropout comparisons.
