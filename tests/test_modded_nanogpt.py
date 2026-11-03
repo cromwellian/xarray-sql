@@ -1,6 +1,7 @@
 """Historical speedrun data, optimizer and SQL training contracts."""
 
 import importlib
+import json
 import os
 from pathlib import Path
 
@@ -168,3 +169,73 @@ def test_sql_matches_pinned_upstream_gradients_and_optimizer(
         )
     finally:
         actual.close()
+
+
+def test_real_shard_cli_accumulation_validation_and_exact_steps(
+    recipe, tmp_path
+):
+    pytest.importorskip("ddxdb")
+    pytest.importorskip("einfold.dense_program")
+    pytest.importorskip("torch")
+    if os.environ.get("MLX_ENABLE_TF32") != "0":
+        pytest.skip("requires MLX GPU execution")
+    upstream = Path(
+        os.environ.get(
+            "MODDED_NANOGPT_SOURCE",
+            Path(__file__).resolve().parents[2] / "modded-nanogpt",
+        )
+    )
+    if not (upstream / recipe._SOURCE).exists():
+        pytest.skip("requires pinned upstream definitions")
+    for split in ("train", "val"):
+        _shard(tmp_path / f"fineweb_{split}_000001.bin", np.arange(120) % 24)
+    driver = importlib.import_module("04_modded_nanogpt")
+    output = tmp_path / "run"
+    driver.main(
+        [
+            "--preset",
+            "tiny",
+            "--width",
+            "8",
+            "--vocab",
+            "24",
+            "--context",
+            "4",
+            "--accumulation",
+            "2",
+            "--data-dir",
+            str(tmp_path),
+            "--mode",
+            "quality",
+            "--steps",
+            "3",
+            "--warmup",
+            "1",
+            "--eval-every",
+            "2",
+            "--val-tokens",
+            "16",
+            "--verify",
+            "cpu",
+            "--checkpoint",
+            "--write-sql",
+            "--upstream",
+            str(upstream),
+            "--out-dir",
+            str(output),
+        ]
+    )
+    summary = json.loads((output / "summary.json").read_text())
+    rows = [
+        json.loads(line)
+        for line in (output / "metrics.jsonl").read_text().splitlines()
+    ]
+    assert [r["iteration"] for r in rows if r["kind"] == "train"] == [0, 1, 2]
+    assert [r["updates"] for r in rows if r["kind"] == "eval"] == [0, 2, 3]
+    assert summary["steps"] == 3 and summary["iterations"] == 5100
+    assert summary["tokens_per_update"] == 16
+    assert summary["official_speedrun_comparable"] is False
+    assert summary["data"] == "FineWeb10B-GPT2"
+    with np.load(output / "last.npz", allow_pickle=False) as checkpoint:
+        assert checkpoint["wte_w"].shape == (24, 8)
+    assert (output / "stages.sql").exists()

@@ -28,6 +28,7 @@ array programs.
 | 01 | [`01_attention.py`](01_attention.py) | causal softmax attention, the core of a transformer, as a view (the model) in einfold's window and `GROUP BY` spellings, and a loss that reads it | the naive plan, which stores every score, against [FlashAttention](https://arxiv.org/abs/2205.14135)'s tiled plan, which einfold finds from the same SQL; gradients with respect to Q, K and V; masked pairs as absent rows; a control that isn't attention: the [Nadaraya–Watson estimator](https://en.wikipedia.org/wiki/Kernel_regression#Nadaraya%E2%80%93Watson_kernel_regression), an average of nearby points weighted by a Gaussian kernel, which einfold must fuse with the same rules |
 | 02 | [`02_nanogpt.py`](02_nanogpt.py) | [nanoGPT](https://github.com/karpathy/nanoGPT)'s GPT-2 model, at 1 layer and 4,416 parameters, as a view, and a cross-entropy loss that reads it, on Tiny Shakespeare | the loss on each host; training steps with SGD or, as nanoGPT trains, AdamW, every parameter table checked after every step |
 | 03 | [`03_shakespeare.py`](03_shakespeare.py) | nanoGPT's 6-layer, 384-channel, 6-head Shakespeare character model with context 256 and batch 12 | training from scratch with exact GELU, dropout, SQL AdamW, train/validation evaluation and resumable checkpoints; optional checks of every gradient, weight and optimizer moment against the original PyTorch model |
+| 04 | [`04_modded_nanogpt.py`](04_modded_nanogpt.py) | a pinned historical [Modded-NanoGPT](https://github.com/KellerJordan/modded-nanogpt) speedrun recipe, 123.6M parameters, rotary embeddings, RMS/QK normalization, squared ReLU, Muon plus AdamW | SQL/MLX versus upstream PyTorch throughput on identical FineWeb batches, gradient accumulation, fixed-prefix validation and explicit numerical-parity reports; a float32 port, not an official H100 record comparison |
 
 The SQL favors legibility over speed. Each model reads like its definition,
 and the slow parts are left slow on purpose: they are what ddx, xarray-sql
@@ -43,6 +44,12 @@ computes the same model in JAX from the same inputs and parameters, and a
 mismatch fails the run.
 
 ## Running
+
+For the historical speedrun trainer, use the existing local environment and
+the [setup, comparison commands and limits](../../MODDED_NANOGPT.md).
+Its optional strict upstream PyTorch oracle fails on a mismatch. Unlike the
+original small demos, a throughput-only run does not imply numerical parity;
+the matched report records full-model checkpoint differences explicitly.
 
 ```shell
 uv run benchmarks/ml/01_attention.py

@@ -27,6 +27,7 @@ DEMOS = {
         ["--steps", "1", "--optimizer", "adamw"],
     ],
     "03_shakespeare.py": [["--help"]],
+    "04_modded_nanogpt.py": [["--help"]],
 }
 
 

@@ -19,6 +19,7 @@ CHANGELOG.md
 docs/demo/*.whl
 # SQL training checkpoints; retain the accompanying text metrics/logs.
 out-shakespeare-sql/
+out-modded-sql/
 benchmarks/apple/shakespeare-matched-*/last.npz
 benchmarks/apple/shakespeare-matched-*/best.npz
 benchmarks/apple/shakespeare-resident-*/last.npz
