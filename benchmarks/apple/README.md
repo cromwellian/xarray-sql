@@ -5,6 +5,10 @@ compares the full 123.6M-parameter FineWeb/Muon SQL recipe with the pinned
 upstream PyTorch model on MPS. Its numbers and numerical limitations do not
 replace the smaller workloads below.
 
+The [whole-step experiment report](../../MODDED_NANOGPT_STEP_EXPERIMENTS.md)
+measures shared lookup gradients, explicit GEMM layouts, and vocabulary
+precision on that same training recipe.
+
 Implemented directly in the local xarray-sql checkout. The optional
 [EinFold/MLX bridge](../../accelerators/einfold_mlx/README.md) connects
 [EinFold](https://github.com/xqlsystems/einfold), a tensor optimizer for SQL,
