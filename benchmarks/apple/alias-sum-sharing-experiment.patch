@@ -1,0 +1,33 @@
+--- a/python/einfold/dense_program.py
++++ b/python/einfold/dense_program.py
+@@ -62,0 +63,2 @@
++        self.share_sums = os.environ.get("PROBE_ALIAS") == "1"
++        self.sum_cells = {}
+@@ -177,0 +180 @@
++        self.sum_cell = None
+@@ -273,0 +277,2 @@
++                if lowered is None and self.sum_cell is not None:
++                    return self.sum_cell.get()
+@@ -824,0 +830,22 @@
++    if cache is not None and cache.share_sums and result.sum_cell is None:
++        axes = _axes(output, used, row_axes, kept)
++        axis_ids = {axis: i for i, axis in enumerate(axes)}
++        operands = []
++        for factor in factors:
++            origin = factor
++            while origin.kind == "rename":
++                origin = origin.args[0]
++            operands.append((origin, tuple(axis_ids[a] for a in factor.axes)))
++        signature = (
++            tuple(operands), tuple(len(a) for a in axes),
++            tuple(axis_ids[a] for a in row_axes), tuple(axis_ids[a] for a in kept),
++            len(output), repeated, len(_factors(value)) > 1,
++        )
++        cell = cache.sum_cells.get(signature)
++        if cell is not None:
++            cache.optimizations["probe_alias_sum_hits"] += 1
++            result.sum_cell = cell
++        elif len(cache.sum_cells) < 32768:
++            cell = _Tensor("reduce", output, value=compute)
++            cache.sum_cells[signature] = cell
++            result.sum_cell = cell
