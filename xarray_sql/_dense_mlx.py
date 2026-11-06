@@ -26,7 +26,7 @@ from einfold.dense_program import (
     _Tensor,
 )
 
-from . import _dense_adjoint, _dense_attention, _dense_proofs
+from . import _dense_adjoint, _dense_attention, _dense_indexed, _dense_proofs
 
 
 @dataclass
@@ -95,6 +95,7 @@ class _Runtime:
         self.counts = Counter()
         self.tracing = False
         self.direct_union = os.environ.get("XQL_MLX_DIRECT_UNION", "1") != "0"
+        self.indexed_union = os.environ.get("XQL_MLX_INDEXED_UNION") == "1"
         attention = os.environ.get("XQL_MLX_ATTENTION", "1")
         if attention not in {"0", "off", "forward", "1", "all"}:
             raise ValueError("XQL_MLX_ATTENTION must be off, forward or all")
@@ -249,6 +250,10 @@ class _Runtime:
         return self.compiled[signature](*(self._mx(a) for a in leaves))
 
     def reduction(self, tensor):
+        if self.tracing and self.direct_union and self.indexed_union:
+            result = _dense_indexed._merge(self, tensor)
+            if result is not None:
+                return result
         if not self.fast_attention:
             return None
         if self.fast_attention_backward:
