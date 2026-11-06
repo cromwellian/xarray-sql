@@ -1,5 +1,9 @@
 # Historical Modded-NanoGPT: local throughput and numerical checks
 
+The follow-up experiments measure coordinate reshapes, reduction sharing,
+indexed gradient accumulation and batch size on the same recipe.
+[Follow-up measurements](MODDED_NANOGPT_INDEXED_EXPERIMENTS.md).
+
 Measured November 2, 2026, on Apple M5 Ultra, 30 CPU/64 GPU cores,
 256 GiB, macOS 27.0.1. MLX 0.32.4, PyTorch 2.15.0, DataFusion 55.0.0,
 NumPy 2.5.4, Python 3.12.14, `MLX_ENABLE_TF32=0`. The local EinFold build
