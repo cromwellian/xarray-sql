@@ -34,3 +34,28 @@ strict SQL checkpoint tolerance, while the rebuilt implementation missed
 it on one embedding weight after twenty updates. The combined layout and
 indexed prototype also missed the tolerance on one weight. Both passes
 remain opt-in and have independent controls for comparison.
+
+## Sharing the lookup across adjacent branches
+
+Set `XQL_MLX_SHARED_INDEXED_UNION=1` with `XQL_MLX_INDEXED_UNION=1` to
+reuse one lookup and one dense write across adjacent compatible branches.
+A trace-local cache reuses offsets for the same device key and ordered
+coordinate domain. The runtime matches a shared coordinate vector and
+offsets after removing axis aliases. A different lookup, layout, or
+dense branch ends the run.
+
+The runtime gathers the incoming accumulator at the active keys, sums
+each branch's duplicates, and applies that branch's masks. It adds the
+masked branch to the compact accumulator in UNION order. The final
+write uses distinct destinations for the active keys and padding slots.
+This keeps the incoming dense contribution in its original place in
+the addition sequence.
+
+On the 123.6M FineWeb workload, one group of 73 indexed partials shared
+the write. At batch 1, twenty updates with ten warmup updates measured
+531.4 ms per warm update with separate writes and 521.5 ms with sharing.
+A reverse-order repeat measured 525.5 ms with separate writes and
+526.9 ms with sharing. The two pairs do not establish a warm speedup.
+All 147 checkpoint arrays passed the existing 3e-5 absolute and relative
+tolerances against separate indexed writes. Two embedding values exceeded
+tolerance against generic SQL, so both controls remain opt-in.

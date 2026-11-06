@@ -96,6 +96,11 @@ class _Runtime:
         self.tracing = False
         self.direct_union = os.environ.get("XQL_MLX_DIRECT_UNION", "1") != "0"
         self.indexed_union = os.environ.get("XQL_MLX_INDEXED_UNION") == "1"
+        self.shared_indexed_union = (
+            self.indexed_union
+            and os.environ.get("XQL_MLX_SHARED_INDEXED_UNION") == "1"
+        )
+        self._lookup_indexes = {}
         attention = os.environ.get("XQL_MLX_ATTENTION", "1")
         if attention not in {"0", "off", "forward", "1", "all"}:
             raise ValueError("XQL_MLX_ATTENTION must be off, forward or all")
@@ -500,6 +505,28 @@ class _Runtime:
         )
 
     def indexes(self, domain, values):
+        if (
+            self.tracing
+            and self.shared_indexed_union
+            and values.ndim
+            and values.size < len(domain)
+        ):
+            # Cache only within one trace. A join alias can rename the axes
+            # while still passing the same ordered device values.
+            entries = self._lookup_indexes.setdefault(id(values), [])
+            for source, coordinates, result in entries:
+                if (
+                    source is values
+                    and coordinates.dtype == domain.dtype
+                    and np.array_equal(coordinates, domain)
+                ):
+                    return result
+            result = self._compute_indexes(domain, values)
+            entries.append((values, domain, result))
+            return result
+        return self._compute_indexes(domain, values)
+
+    def _compute_indexes(self, domain, values):
         if domain.dtype.kind not in "iu" or not len(domain):
             raise _Decline("GPU index domain must contain integers")
         if int(domain.min()) < -(1 << 63) or int(domain.max()) >= (1 << 63):
