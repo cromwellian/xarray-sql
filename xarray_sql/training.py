@@ -686,6 +686,7 @@ class _TrainingStep:
                 finally:
                     owner._tracing = False
                     runtime.tracing = False
+                    runtime._lookup_indexes.clear()
 
             self._function = runtime.compile_training(function)
         packed, status = self._function(*arrays)
