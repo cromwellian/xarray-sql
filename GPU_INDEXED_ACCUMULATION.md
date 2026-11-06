@@ -54,6 +54,8 @@ the addition sequence.
 On the 123.6M FineWeb workload, one group of 73 indexed partials shared
 the write. At batch 1, twenty updates with ten warmup updates measured
 531.4 ms per warm update with separate writes and 521.5 ms with sharing.
+A reverse-order repeat measured 525.5 ms with separate writes and
+526.9 ms with sharing. The two pairs do not establish a warm speedup.
 All 147 checkpoint arrays passed the existing 3e-5 absolute and relative
 tolerances against separate indexed writes. Two embedding values exceeded
 tolerance against generic SQL, so both controls remain opt-in.
