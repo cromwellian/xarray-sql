@@ -18,20 +18,33 @@ from xarray_sql.training import TrainingSession
     os.environ.get("MLX_ENABLE_TF32") != "0", reason="requires MLX GPU"
 )
 @pytest.mark.parametrize(
-    ("indexed", "shared"), [("0", "0"), ("1", "0"), ("1", "1")]
+    ("indexed", "shared", "maps"),
+    [("0", "0", "0"), ("1", "0", "0"), ("1", "1", "0"), ("0", "0", "1")],
 )
 def test_compiled_tied_weight_gradient_combines_duplicate_keys(
-    monkeypatch, indexed, shared
+    monkeypatch, indexed, shared, maps
 ):
     monkeypatch.setenv("XQL_MLX_INDEXED_UNION", indexed)
     monkeypatch.setenv("XQL_MLX_SHARED_INDEXED_UNION", shared)
+    monkeypatch.setenv("EINFOLD_DENSE_INDEX_MAPS", maps)
     weights = np.full((16, 3), 0.5)
     coefficients = np.arange(48.0).reshape(16, 3)
     coefficients[3, 0] = 2**24
+    labels = np.arange(16)
+    if maps == "1":
+        labels = 10 + 3 * labels
     session = TrainingSession(Context())
     try:
-        session.bind("wte", xr.Dataset({"w": (("tok", "e"), weights)}))
-        session.bind("head", xr.Dataset({"a": (("tok", "e"), coefficients)}))
+        session.bind(
+            "wte",
+            xr.Dataset({"w": (("tok", "e"), weights)}, coords={"tok": labels}),
+        )
+        session.bind(
+            "head",
+            xr.Dataset(
+                {"a": (("tok", "e"), coefficients)}, coords={"tok": labels}
+            ),
+        )
         session.index_domains(
             "batch", {"tok": ("wte", "tok"), "other": ("wte", "tok")}
         )
@@ -65,8 +78,8 @@ def test_compiled_tied_weight_gradient_combines_duplicate_keys(
                 "batch",
                 xr.Dataset(
                     {
-                        "tok": (("seq", "pos"), np.array([tokens])),
-                        "other": (("seq", "pos"), np.array([other])),
+                        "tok": (("seq", "pos"), labels[np.array([tokens])]),
+                        "other": (("seq", "pos"), labels[np.array([other])]),
                         "scale": (("seq", "pos"), np.array([scales])),
                     }
                 ),
