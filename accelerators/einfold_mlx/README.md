@@ -17,7 +17,7 @@ DataFusion plans until physical planning, so ddx can serialize them through
 Substrait. MLX only evaluates arithmetic inside those plans.
 
 The released EinFold Python API has no external executor hook. The optional
-builder pins the feature commit `303d65c8bbb16dd4c3994b2bf1b0ab0e29a06232` in the [EinFold feature fork](https://github.com/cromwellian/einfold),
+builder pins the feature commit `3d85cf7527ba3173238079a9fb79fec4862a10a9` in the [EinFold feature fork](https://github.com/cromwellian/einfold),
 which contains the native bridge, compact array module and invocation-local
 expression sharing. The [compiler report](../../GPU_COMPILER_OPTIMIZATIONS.md)
 documents that first increment; the
@@ -108,6 +108,11 @@ with matching operands and positional domains. The
 compares CPU and GPU behavior. `XQL_MLX_FIXED_SEGMENTS=1` selects
 fixed-order float32 sums for dynamic GPU grouping keys.
 [Fixed-sum implementation and checks](../../GPU_FIXED_SEGMENT_SUMS.md).
+
+`EINFOLD_DENSE_SYMBOLIC_MASKS=1` proves group presence and NULL validity
+from dimension metadata where the mask depends only on group keys.
+It retains dynamic reduced-axis masks and full SQL validation.
+[Measured training improvement and numerical checks](../../GPU_SYMBOLIC_VALIDITY.md).
 
 ```python
 from einfold.datafusion import EinFold
