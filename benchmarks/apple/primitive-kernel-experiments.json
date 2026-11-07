@@ -870,7 +870,7 @@
     "gradient_max_abs": 1.6007106751203537e-10,
     "gradient_outside_tolerance": 0
   },
-  "patch_sha256": "a986cad92ac8a68c61ded2372123cf54a63805d25b9ad20f9b1355261467c97b",
+  "patch_sha256": "019747e711fc75e61bf329451ae9594b5a7aebb4f541445b66fa49ed58d9db13",
   "notes": [
     "Prototype source is an unapplied patch. Full-model trials precede the completed indexed-identity pass and use an approximately418ms partial-identity control.",
     "All model trials have20 advancing updates; warm means use updates11\u201320. SQL full validation and FP32 are retained."

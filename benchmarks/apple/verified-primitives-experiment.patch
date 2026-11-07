@@ -15,7 +15,7 @@ index 580c7da..b76cf6b 100644
 @@ -222,13 +224,88 @@ class _Runtime:
      def _mx(self, value):
          return value if self.owns(value) else mx.array(value)
- 
+
 +    def _normalization(self, tensor):
 +        if os.environ.get("XQL_MLX_SOFTMAX") == "1":
 +            match = _dense_cross_entropy._softmax_gradient(tensor)
@@ -87,7 +87,7 @@ index 580c7da..b76cf6b 100644
 +        if normalized is not None:
 +            return normalized
          leaves, instructions, seen = [], [], {}
- 
+
          def describe(node):
              if node in seen:
                  return seen[node]
@@ -104,7 +104,7 @@ index 580c7da..b76cf6b 100644
              else:
 @@ -262,6 +339,10 @@ class _Runtime:
          return self.compiled[signature](*(self._mx(a) for a in leaves))
- 
+
      def reduction(self, tensor):
 +        if os.environ.get("XQL_MLX_NORMALIZATION_BACKWARD") == "1":
 +            gradient = self._normalization_gradient(tensor)
@@ -116,7 +116,7 @@ index 580c7da..b76cf6b 100644
 @@ -298,6 +379,85 @@ class _Runtime:
          self.counts["gpu_attention_forwards"] += 1
          return result.transpose(tuple(source.index(a) for a in match.output))
- 
+
 +    def _normalization_gradient(self, tensor):
 +        parts, axes = tensor.union, tensor.axes
 +        if (
@@ -775,27 +775,27 @@ index db29c93..ab66fea 100644
 +++ b/xarray_sql/_dense_attention.py
 @@ -11,6 +11,7 @@ from __future__ import annotations
  from dataclasses import dataclass
- 
+
  import numpy as np
 +from einfold.dense_program import _value_source
- 
+
  _FLOAT32_MAX = float(np.finfo(np.float32).max)
- 
+
 @@ -34,7 +35,10 @@ class _View:
          return tuple(self.child(a) for a in self.node.args)
- 
+
      def same(self, other):
 -        return self.node is other.node and self.axes() == other.axes()
 +        return (
 +            _value_source(self.node) is _value_source(other.node)
 +            and self.axes() == other.axes()
 +        )
- 
- 
+
+
  def _view(node, mapping=()):
 @@ -48,7 +52,7 @@ def _view(node, mapping=()):
- 
- 
+
+
  def _bound_same(inner, outer, kept):
 -    if inner.node is not outer.node:
 +    if _value_source(inner.node) is not _value_source(outer.node):
