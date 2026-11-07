@@ -10,7 +10,7 @@ import pytest
 
 
 @pytest.mark.parametrize("fast", [False, True])
-def test_native_control_all_parameter_gradients(monkeypatch, fast):
+def test_native_control_all_parameter_gradients(monkeypatch, fast, tmp_path):
     if os.environ.get("MLX_ENABLE_TF32") != "0":
         pytest.skip("requires MLX GPU execution")
     mx = pytest.importorskip("mlx.core")
@@ -36,6 +36,25 @@ def test_native_control_all_parameter_gradients(monkeypatch, fast):
     for name, value in params.items():
         if name.endswith(("_wo", "_proj")):
             params[name] = rng.normal(0, 0.02, value.shape).astype(np.float32)
+    checkpoint = tmp_path / "sql-schema.npz"
+    np.savez(
+        checkpoint,
+        **{
+            name + "_w": value.astype(np.float64)
+            for name, value in params.items()
+        },
+    )
+    restored = module._weights(checkpoint, config)
+    for name in params:
+        assert restored[name].dtype == np.float32
+        np.testing.assert_array_equal(restored[name], params[name])
+    altered = {
+        name + "_w": value.astype(np.float64) for name, value in params.items()
+    }
+    altered["wte_w"][0, 0] += 1e-10
+    np.savez(tmp_path / "inexact.npz", **altered)
+    with pytest.raises(ValueError, match="not exact float32"):
+        module._weights(tmp_path / "inexact.npz", config)
     model = oracle._TorchTrainer(config, params, upstream, "cpu")
     compute, weights = module._native(config, params, fast)
     for _ in range(2):

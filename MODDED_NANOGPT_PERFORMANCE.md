@@ -1,5 +1,10 @@
 # Historical Modded-NanoGPT: local throughput and numerical checks
 
+For the current compiler stack, see [the November 7 numerical-identity
+report](GPU_NUMERICAL_VALUE_IDENTITIES.md), including the 238.95 ms installed
+SQL run, refreshed PyTorch control, numerical limits and required flags.
+The measurements below retain their original compiler revision.
+
 Measured November 2, 2026, on Apple M5 Ultra, 30 CPU/64 GPU cores,
 256 GiB, macOS 27.0.1. MLX 0.32.4, PyTorch 2.15.0, DataFusion 55.0.0,
 NumPy 2.5.4, Python 3.12.14, `MLX_ENABLE_TF32=0`. The local EinFold build

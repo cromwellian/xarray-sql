@@ -39,7 +39,7 @@ from _modded_nanogpt import (
 )
 
 
-def _loss(params, tok, nxt, config, fast):
+def _logits(params, tok, config, fast):
     def norm(x):
         return x / mx.sqrt(
             mx.mean(x * x, axis=-1, keepdims=True) + np.finfo(np.float32).eps
@@ -100,7 +100,11 @@ def _loss(params, tok, nxt, config, fast):
         h = norm(x) @ params[prefix + "fc"].T
         h = mx.maximum(h, 0)
         x = x + (h * h) @ params[prefix + "proj"].T
-    logits = norm(x) @ params["wte"].T
+    return norm(x) @ params["wte"].T
+
+
+def _loss(params, tok, nxt, config, fast):
+    logits = _logits(params, tok, config, fast)
     target = mx.take_along_axis(logits, nxt[..., None], axis=-1)[..., 0]
     return mx.mean(mx.logsumexp(logits, axis=-1) - target)
 
@@ -118,6 +122,30 @@ def _native(config, params, fast):
         return loss, grads, status
 
     return mx.compile(compute), {k: mx.array(v) for k, v in params.items()}
+
+
+def _weights(path, config):
+    """Accept SQL's double-schema exports only when values are exact FP32."""
+    result = {}
+    with np.load(path) as state:
+        for name, shape in config.shapes.items():
+            value = state[name + "_w"]
+            if (
+                value.shape != shape
+                or value.dtype not in (np.float32, np.float64)
+                or not np.isfinite(value).all()
+            ):
+                raise ValueError(
+                    f"invalid float32 weights for {name}: expected {shape}"
+                )
+            with np.errstate(over="ignore", invalid="ignore"):
+                single = value.astype(np.float32)
+            if not np.array_equal(value, single.astype(value.dtype)):
+                raise ValueError(
+                    f"weights for {name} are not exact float32 values"
+                )
+            result[name] = single
+    return result
 
 
 def _sql(config, params):
@@ -178,8 +206,10 @@ def main():
     )
     params = _initial(config)
     if args.weights:
-        with np.load(args.weights) as saved:
-            params = {name: saved[name + "_w"].copy() for name in config.shapes}
+        try:
+            params = _weights(args.weights, config)
+        except ValueError as error:
+            parser.error(str(error))
     for name, shape in config.shapes.items():
         if (
             params[name].shape != shape
