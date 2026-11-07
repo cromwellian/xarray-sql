@@ -102,8 +102,13 @@ def _compact_part(runtime, part, candidate, keys, slots, active, rows):
         tuple(len(a) for a in indexed.local),
     ).reshape(len(output[0]), -1)
     # Reduce duplicates and apply SQL masks separately for each branch.
-    partial = mx.zeros((len(output[0]), keys.size), dtype=mx.float32)
-    partial = partial.at[rows, slots[None, :]].add(data)
+    if runtime.fixed_segments:
+        partial = runtime.scatter(
+            data, slots[None, :], keys.size, count_bound=slots.size
+        )
+    else:
+        partial = mx.zeros((len(output[0]), keys.size), dtype=mx.float32)
+        partial = partial.at[rows, slots[None, :]].add(data)
     partial = partial * _mask_at(runtime, mask, output, keys)
     valid = active & _mask_at(runtime, part.mask, output, keys)
     return mx.where(valid, partial, 0)

@@ -26,7 +26,13 @@ from einfold.dense_program import (
     _Tensor,
 )
 
-from . import _dense_adjoint, _dense_attention, _dense_indexed, _dense_proofs
+from . import (
+    _dense_adjoint,
+    _dense_attention,
+    _dense_indexed,
+    _dense_proofs,
+    _dense_segment,
+)
 
 
 @dataclass
@@ -101,6 +107,7 @@ class _Runtime:
             and os.environ.get("XQL_MLX_SHARED_INDEXED_UNION") == "1"
         )
         self._lookup_indexes = {}
+        self.fixed_segments = os.environ.get("XQL_MLX_FIXED_SEGMENTS") == "1"
         attention = os.environ.get("XQL_MLX_ATTENTION", "1")
         if attention not in {"0", "off", "forward", "1", "all"}:
             raise ValueError("XQL_MLX_ATTENTION must be off, forward or all")
@@ -626,8 +633,15 @@ class _Runtime:
             if count_bound > np.iinfo(np.int32).max:
                 raise _Decline("GPU integer scatter exceeds exact int32 range")
             data = data.astype(mx.int32)
-        result = mx.zeros((data.shape[0], size), dtype=data.dtype)
         self.counts["gpu_scatter_reductions"] += 1
+        if (
+            self.fixed_segments
+            and self.owns(indexes)
+            and data.dtype == mx.float32
+        ):
+            self.counts["gpu_fixed_segment_reductions"] += 1
+            return _dense_segment._sum(data, indexes, size)
+        result = mx.zeros((data.shape[0], size), dtype=data.dtype)
         result = result.at[
             mx.arange(data.shape[0])[:, None], mx.array(indexes)
         ].add(data)

@@ -18,15 +18,24 @@ from xarray_sql.training import TrainingSession
     os.environ.get("MLX_ENABLE_TF32") != "0", reason="requires MLX GPU"
 )
 @pytest.mark.parametrize(
-    ("indexed", "shared", "maps"),
-    [("0", "0", "0"), ("1", "0", "0"), ("1", "1", "0"), ("0", "0", "1")],
+    ("indexed", "shared", "maps", "segments"),
+    [
+        ("0", "0", "0", "0"),
+        ("1", "0", "0", "0"),
+        ("1", "1", "0", "0"),
+        ("0", "0", "1", "0"),
+        ("0", "0", "1", "1"),
+        ("1", "0", "1", "1"),
+        ("1", "1", "1", "1"),
+    ],
 )
 def test_compiled_tied_weight_gradient_combines_duplicate_keys(
-    monkeypatch, indexed, shared, maps
+    monkeypatch, indexed, shared, maps, segments
 ):
     monkeypatch.setenv("XQL_MLX_INDEXED_UNION", indexed)
     monkeypatch.setenv("XQL_MLX_SHARED_INDEXED_UNION", shared)
     monkeypatch.setenv("EINFOLD_DENSE_INDEX_MAPS", maps)
+    monkeypatch.setenv("XQL_MLX_FIXED_SEGMENTS", segments)
     weights = np.full((16, 3), 0.5)
     coefficients = np.arange(48.0).reshape(16, 3)
     coefficients[3, 0] = 2**24
