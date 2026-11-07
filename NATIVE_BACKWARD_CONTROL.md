@@ -29,6 +29,8 @@ attention-kernel selection alone does not explain the gap.
 
 The tool validates weight shapes, float32 dtype and finiteness, records
 weight hashes, and exports SQL gradients in their declared dimension order.
+SQL checkpoints exported through a float64 Arrow schema are accepted only
+when every weight round-trips exactly to float32; inexact values are rejected.
 Its small oracle tests use nonzero output projections and two changed
 batches; every gradient is compared against the pinned original PyTorch
 model. Fused-attention training requires a supported head width and sequence
