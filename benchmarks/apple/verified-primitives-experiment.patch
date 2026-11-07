@@ -1,0 +1,804 @@
+diff --git a/xarray_sql/_dense_mlx.py b/xarray_sql/_dense_mlx.py
+index 580c7da..b76cf6b 100644
+--- a/xarray_sql/_dense_mlx.py
++++ b/xarray_sql/_dense_mlx.py
+@@ -29,7 +29,9 @@ from einfold.dense_program import (
+ from . import (
+     _dense_adjoint,
+     _dense_attention,
++    _dense_cross_entropy,
+     _dense_indexed,
++    _dense_normalization,
+     _dense_proofs,
+     _dense_segment,
+ )
+@@ -222,13 +224,88 @@ class _Runtime:
+     def _mx(self, value):
+         return value if self.owns(value) else mx.array(value)
+ 
++    def _normalization(self, tensor):
++        if os.environ.get("XQL_MLX_SOFTMAX") == "1":
++            match = _dense_cross_entropy._softmax_gradient(tensor)
++            if match is not None:
++                logits = match.logits.node.get()
++                if self.owns(logits) and logits.dtype == mx.float32:
++                    axes = match.logits.axes()
++                    ordered = tuple(
++                        a for a in axes if a is not match.feature
++                    ) + (match.feature,)
++                    logits = logits.transpose(
++                        tuple(axes.index(a) for a in ordered)
++                    )
++                    result = mx.softmax(logits, axis=-1)
++                    weight = self.broadcast(
++                        match.weight.node.get(),
++                        match.weight.axes(),
++                        ordered,
++                        tuple(len(a) for a in ordered),
++                    )
++                    self.counts["gpu_softmax_gradient_components"] += 1
++                    return (result * weight).transpose(
++                        tuple(ordered.index(a) for a in match.output)
++                    )
++        if os.environ.get("XQL_MLX_CROSS_ENTROPY") == "1":
++            match = _dense_cross_entropy._match(tensor)
++            if match is not None:
++                logits = match.logits.node.get()
++                if (
++                    self.owns(logits)
++                    and logits.dtype == mx.float32
++                    and self.owns(match.indexes)
++                ):
++                    axes = match.logits.axes()
++                    rows = tuple(a for a in axes if a is not match.feature)
++                    ordered = (*rows, match.feature)
++                    logits = logits.transpose(
++                        tuple(axes.index(a) for a in ordered)
++                    )
++                    indexes = match.indexes.transpose(
++                        tuple(match.index_axes.index(a) for a in rows)
++                    )
++                    result = mx.fast.cross_entropy(logits, indexes)
++                    self.counts["gpu_cross_entropy_forwards"] += 1
++                    return result.transpose(
++                        tuple(rows.index(a) for a in match.output)
++                    )
++        if os.environ.get("XQL_MLX_NORMALIZATION") == "1":
++            match = _dense_normalization._match(tensor)
++            if match is not None:
++                value = match.value.node.get()
++                if self.owns(value) and value.dtype == mx.float32:
++                    axes = match.value.axes()
++                    ordered = tuple(
++                        a for a in axes if a is not match.feature
++                    ) + (match.feature,)
++                    value = value.transpose(
++                        tuple(axes.index(a) for a in ordered)
++                    )
++                    result = mx.fast.rms_norm(value, None, match.eps)
++                    self.counts["gpu_rms_normalizations"] += 1
++                    return result.transpose(
++                        tuple(ordered.index(a) for a in match.output)
++                    )
++        return None
++
+     def pointwise(self, tensor):
++        normalized = self._normalization(tensor)
++        if normalized is not None:
++            return normalized
+         leaves, instructions, seen = [], [], {}
+ 
+         def describe(node):
+             if node in seen:
+                 return seen[node]
+-            if node.kind in _OPS and node.cached is None and len(seen) < 64:
++            normalized = (
++                self._normalization(node) if node is not tensor else None
++            )
++            if normalized is not None:
++                leaves.append(_align(normalized, node.axes, tensor.axes))
++                instruction = "leaf", len(leaves) - 1
++            elif node.kind in _OPS and node.cached is None and len(seen) < 64:
+                 children = tuple(describe(a) for a in node.args)
+                 instruction = node.kind, children
+             else:
+@@ -262,6 +339,10 @@ class _Runtime:
+         return self.compiled[signature](*(self._mx(a) for a in leaves))
+ 
+     def reduction(self, tensor):
++        if os.environ.get("XQL_MLX_NORMALIZATION_BACKWARD") == "1":
++            gradient = self._normalization_gradient(tensor)
++            if gradient is not None:
++                return gradient
+         if self.tracing and self.direct_union and self.indexed_union:
+             result = _dense_indexed._merge(self, tensor)
+             if result is not None:
+@@ -298,6 +379,85 @@ class _Runtime:
+         self.counts["gpu_attention_forwards"] += 1
+         return result.transpose(tuple(source.index(a) for a in match.output))
+ 
++    def _normalization_gradient(self, tensor):
++        parts, axes = tensor.union, tensor.axes
++        if (
++            parts is None
++            or len(parts) < 2
++            or not all(
++                len(p.axes) == len(axes)
++                and all(
++                    np.array_equal(a.values, b.values)
++                    for a, b in zip(p.axes, axes)
++                )
++                for p in parts
++            )
++        ):
++            return None
++        pairs = {}
++        at = 0
++        while at + 1 < len(parts):
++            match = _dense_normalization._gradient(
++                parts[at], parts[at + 1], axes
++            )
++            if match is None:
++                at += 1
++            else:
++                pairs[at] = match
++                at += 2
++        if not pairs:
++            return None
++        result = mx.zeros(tuple(len(a) for a in axes), dtype=mx.float32)
++        at = 0
++        while at < len(parts):
++            if at in pairs:
++                match = pairs[at]
++                normalized = match.normalization
++                ordered = tuple(
++                    a for a in axes if a is not normalized.feature
++                ) + (normalized.feature,)
++                arrays = []
++                for view in [normalized.value, match.dy]:
++                    value = view.node.get()
++                    if (
++                        not self.owns(value)
++                        or value.dtype != mx.float32
++                        or set(view.axes()) != set(axes)
++                    ):
++                        return None
++                    arrays.append(
++                        value.transpose(
++                            tuple(view.axes().index(a) for a in ordered)
++                        )
++                    )
++                _, gradients = mx.vjp(
++                    lambda x, eps=normalized.eps: mx.fast.rms_norm(
++                        x, None, eps
++                    ),
++                    [arrays[0]],
++                    [arrays[1]],
++                )
++                value = gradients[0].transpose(
++                    tuple(ordered.index(a) for a in axes)
++                )
++                self.counts["gpu_rms_normalization_adjoints"] += 1
++                at += 2
++            else:
++                part = parts[at]
++                value = self.broadcast(
++                    part.value.get(),
++                    part.value.axes,
++                    part.axes,
++                    tuple(len(a) for a in axes),
++                )
++                mask = self._mx(
++                    _align(part.mask.get(), part.mask.axes, part.axes)
++                )
++                value = mx.where(mask, value, 0)
++                at += 1
++            result = result + value
++        return result
++
+     def _attention_inputs(self, match):
+         batch = tuple(len(a) for a in match.batch)
+         leading = (*batch, 1) if len(batch) == 1 else batch or (1, 1)
+diff --git a/xarray_sql/_dense_normalization.py b/xarray_sql/_dense_normalization.py
+new file mode 100644
+index 0000000..2e6ffd5
+--- /dev/null
++++ b/xarray_sql/_dense_normalization.py
+@@ -0,0 +1,261 @@
++"""Prove a complete-domain RMS normalization from numerical operations."""
++
++from dataclasses import dataclass
++from fractions import Fraction
++
++import numpy as np
++
++from ._dense_attention import (
++    _bind_reduction,
++    _bound_same,
++    _factors,
++    _scalar,
++    _static_mask,
++    _View,
++    _view,
++)
++
++
++@dataclass(frozen=True)
++class _Normalization:
++    value: object
++    feature: object
++    eps: float
++    output: tuple
++
++
++def _match(tensor):
++    root = _view(tensor)
++    if root.node.kind != "/":
++        return None
++    value, denominator = root.args()
++    if denominator.node.kind != "sqrt":
++        return None
++    addition = denominator.args()[0]
++    if addition.node.kind != "+":
++        return None
++    for average, epsilon in [addition.args(), addition.args()[::-1]]:
++        eps = _scalar(epsilon)
++        if (
++            eps is None
++            or not 0 < eps <= np.finfo(np.float32).max
++            or average.node.kind != "/"
++        ):
++            continue
++        total, count = average.args()
++        info = total.node.reduction
++        if info is None or info.kind != "sum" or info.repeated != 1:
++            continue
++        feature = tuple(a for a in value.axes() if a not in denominator.axes())
++        if len(feature) != 1 or _scalar(count) != len(feature[0]):
++            continue
++        mapping = _bind_reduction(total, feature)
++        if mapping is None:
++            continue
++        bound = _View(total.node, tuple(mapping.items()))
++        mask = _static_mask(bound.child(info.mask), value.axes())
++        factors = _factors(bound.child(info.value))
++        if mask is None or not np.all(mask) or len(factors) != 2:
++            continue
++        if set(bound.axes(info.row_axes)) != set(value.axes()) or set(
++            bound.axes(info.kept)
++        ) != set(denominator.axes()):
++            continue
++        if all(
++            _bound_same(factor, value, denominator.axes()) for factor in factors
++        ):
++            return _Normalization(value, feature[0], eps, root.axes())
++    return None
++
++
++def _full(view, info):
++    mask = _static_mask(view.child(info.mask), view.axes(info.row_axes))
++    return mask is not None and np.all(mask)
++
++
++def _strip(view):
++    for _ in range(16):
++        info = view.node.reduction
++        if view.node.kind == "float64":
++            view = view.args()[0]
++        elif (
++            info is not None
++            and info.kind == "sum"
++            and info.repeated == 1
++            and set(info.row_axes) == set(info.kept)
++            and _full(view, info)
++        ):
++            view = view.child(info.value)
++        else:
++            break
++    return view
++
++
++def _multiply(left, right):
++    if left is None or right is None or len(left) * len(right) > 16:
++        return None
++    result = {}
++    for a, ca in left.items():
++        for b, cb in right.items():
++            powers = dict(a)
++            for atom, power in b:
++                powers[atom] = powers.get(atom, 0) + power
++            key = frozenset(
++                (atom, power) for atom, power in powers.items() if power
++            )
++            result[key] = result.get(key, Fraction(0)) + ca * cb
++    return {k: v for k, v in result.items() if v}
++
++
++def _monomial(**powers):
++    return frozenset((atom, power) for atom, power in powers.items() if power)
++
++
++class _Derivative:
++    def __init__(self, value, dy, denominator, feature, kept):
++        self.symbols = [(value, "x"), (dy, "d"), (denominator, "s")]
++        self.feature, self.kept = feature, kept
++        self.remaining = 256
++
++    def run(self, view):
++        self.remaining -= 1
++        if self.remaining < 0:
++            return None
++        view = _strip(view)
++        for source, atom in self.symbols:
++            if _bound_same(view, source, self.kept):
++                return {_monomial(**{atom: 1}): Fraction(1)}
++        scalar = _scalar(view)
++        if scalar is not None:
++            return {_monomial(): Fraction(scalar)} if scalar else {}
++        args = view.args()
++        kind = view.node.kind
++        if kind in {"+", "-"}:
++            left, right = (self.run(a) for a in args)
++            if left is None or right is None:
++                return None
++            result = dict(left)
++            for k, c in right.items():
++                result[k] = result.get(k, Fraction(0)) + (
++                    c if kind == "+" else -c
++                )
++            return {k: c for k, c in result.items() if c}
++        if kind == "neg":
++            child = self.run(args[0])
++            return None if child is None else {k: -c for k, c in child.items()}
++        if kind in {"*", "/"}:
++            left, right = (self.run(a) for a in args)
++            if kind == "/":
++                if right is None or len(right) != 1:
++                    return None
++                key, c = next(iter(right.items()))
++                if not c:
++                    return None
++                right = {frozenset((a, -p) for a, p in key): 1 / c}
++            return _multiply(left, right)
++        info = view.node.reduction
++        if (
++            info is None
++            or info.kind != "sum"
++            or info.repeated != 1
++            or not _full(view, info)
++        ):
++            return None
++        if set(view.axes(info.kept)) != set(self.kept):
++            return None
++        mapping = _bind_reduction(view, (self.feature,))
++        if mapping is None:
++            return None
++        bound = _View(view.node, tuple(mapping.items()))
++        inner = self.run(bound.child(info.value))
++        if inner is None:
++            return None
++        result = {}
++        for key, c in inner.items():
++            p = dict(key)
++            if p.pop("x", 0) != 1 or p.pop("d", 0) != 1:
++                return None
++            p["r"] = 1
++            result[frozenset(p.items())] = c
++        return result
++
++
++@dataclass(frozen=True)
++class _Gradient:
++    normalization: _Normalization
++    dy: object
++
++
++def _gradient(left, right, axes):
++    """Prove d/s - x*SUM(x*d)/(N*s^3), independent of SQL names."""
++    left_view = _view(left.value, dict(zip(left.axes, axes)).items())
++    right_view = _view(right.value, dict(zip(right.axes, axes)).items())
++    first = _strip(left_view)
++    factors = _factors(first)
++    candidates = []
++    if first.node.kind == "/":
++        candidates.append(first.args())
++    if len(factors) == 2:
++        for dy, inverse in [factors, factors[::-1]]:
++            if inverse.node.kind == "/" and _scalar(inverse.args()[0]) == 1:
++                candidates.append((dy, inverse.args()[1]))
++    for dy, denominator in candidates:
++        # Construct the same quotient descriptor used by the forward proof.
++        if denominator.node.kind != "sqrt":
++            continue
++        addition = denominator.args()[0]
++        if addition.node.kind != "+":
++            continue
++        for average, epsilon in [addition.args(), addition.args()[::-1]]:
++            if average.node.kind != "/":
++                continue
++            total, count = average.args()
++            info = total.node.reduction
++            if info is None or info.kind != "sum":
++                continue
++            feature = tuple(a for a in axes if a not in denominator.axes())
++            if len(feature) != 1 or _scalar(count) != len(feature[0]):
++                continue
++            mapping = _bind_reduction(total, feature)
++            if mapping is None:
++                continue
++            bound = _View(total.node, tuple(mapping.items()))
++            squared = _factors(bound.child(info.value))
++            eps = _scalar(epsilon)
++            if (
++                len(squared) != 2
++                or eps is None
++                or not 0 < eps <= np.finfo(np.float32).max
++                or not _full(bound, info)
++            ):
++                continue
++            value = squared[0]
++            if not _bound_same(squared[1], value, denominator.axes()):
++                continue
++            if set(value.axes()) != set(axes):
++                continue
++            kept = denominator.axes()
++            masks = [
++                _static_mask(
++                    _view(part.mask, dict(zip(part.axes, axes)).items()), axes
++                )
++                for part in [left, right]
++            ]
++            if any(m is None or not np.all(m) for m in masks):
++                continue
++            proof = _Derivative(value, dy, denominator, feature[0], kept)
++            a, b = proof.run(left_view), proof.run(right_view)
++            if a is None or b is None:
++                continue
++            for key, c in b.items():
++                a[key] = a.get(key, Fraction(0)) + c
++            a = {k: c for k, c in a.items() if c}
++            expected = {
++                _monomial(d=1, s=-1): Fraction(1),
++                _monomial(x=1, r=1, s=-3): Fraction(-1, len(feature[0])),
++            }
++            if a == expected:
++                return _Gradient(
++                    _Normalization(value, feature[0], eps, tuple(axes)), dy
++                )
++    return None
+diff --git a/xarray_sql/_dense_cross_entropy.py b/xarray_sql/_dense_cross_entropy.py
+new file mode 100644
+index 0000000..57c42d1
+--- /dev/null
++++ b/xarray_sql/_dense_cross_entropy.py
+@@ -0,0 +1,168 @@
++"""Prove complete-domain logsumexp minus a positional target lookup."""
++
++from dataclasses import dataclass
++
++import numpy as np
++
++from ._dense_attention import (
++    _bind_reduction,
++    _bound_same,
++    _factors,
++    _scalar,
++    _static_mask,
++    _View,
++    _view,
++)
++from ._dense_normalization import _strip
++
++
++@dataclass(frozen=True)
++class _CrossEntropy:
++    logits: object
++    indexes: object
++    index_axes: tuple
++    feature: object
++    output: tuple
++
++
++@dataclass(frozen=True)
++class _SoftmaxGradient:
++    logits: object
++    weight: object
++    feature: object
++    output: tuple
++
++
++def _softmax_gradient(tensor):
++    """Prove exp(x-max)/SUM(exp(x-max)) times a class-independent weight."""
++    root = _view(tensor)
++    factors = _factors(root)
++    if len(factors) != 2:
++        return None
++    for exponential, coefficient in [factors, factors[::-1]]:
++        if exponential.node.kind != "exp":
++            continue
++        coefficient = _strip(coefficient)
++        candidates = []
++        if coefficient.node.kind == "/":
++            candidates.append(coefficient.args())
++        cf = _factors(coefficient)
++        if len(cf) == 2:
++            for weight, inverse in [cf, cf[::-1]]:
++                if inverse.node.kind == "/" and _scalar(inverse.args()[0]) == 1:
++                    candidates.append((weight, inverse.args()[1]))
++        for weight, total in candidates:
++            info = total.node.reduction
++            if info is None or info.kind != "sum" or info.repeated != 1:
++                continue
++            feature = tuple(
++                a for a in exponential.axes() if a not in total.axes()
++            )
++            if len(feature) != 1 or not set(weight.axes()).issubset(
++                total.axes()
++            ):
++                continue
++            mapping = _bind_reduction(total, feature)
++            if mapping is None:
++                continue
++            bound = _View(total.node, tuple(mapping.items()))
++            if not _bound_same(
++                bound.child(info.value), exponential, total.axes()
++            ) or not _all_rows(bound, info, exponential.axes()):
++                continue
++            difference = exponential.args()[0]
++            if difference.node.kind != "-":
++                continue
++            logits, maximum = difference.args()
++            extreme = maximum.node.reduction
++            if extreme is None or extreme.kind != "max":
++                continue
++            mapping = _bind_reduction(maximum, feature)
++            if mapping is None:
++                continue
++            maximum = _View(maximum.node, tuple(mapping.items()))
++            if not _bound_same(
++                maximum.child(extreme.value), logits, total.axes()
++            ) or not _all_rows(maximum, extreme, logits.axes()):
++                continue
++            if set(bound.axes(info.row_axes)) != set(logits.axes()) or set(
++                bound.axes(info.kept)
++            ) != set(total.axes()):
++                continue
++            return _SoftmaxGradient(logits, weight, feature[0], root.axes())
++    return None
++
++
++def _all_rows(view, info, axes):
++    mask = _static_mask(view.child(info.mask), axes)
++    return mask is not None and np.all(mask)
++
++
++def _match(tensor):
++    root = _view(tensor)
++    if root.node.kind != "-":
++        return None
++    lse, target = root.args()
++    if target.node.kind != "take" or lse.node.kind != "+":
++        return None
++    source, indexes, _, replacement = target.node.value
++    logits = target.child(target.node.args[0])
++    feature = logits.axes((source,))[0]
++    rows = tuple(a for a in logits.axes() if a is not feature)
++    if set(root.axes()) != set(rows) or set(target.axes(replacement)) != set(
++        rows
++    ):
++        return None
++    for maximum, logarithm in [lse.args(), lse.args()[::-1]]:
++        if logarithm.node.kind != "ln":
++            continue
++        total = logarithm.args()[0]
++        info = total.node.reduction
++        if info is None or info.kind != "sum" or info.repeated != 1:
++            continue
++        mapping = _bind_reduction(total, (feature,))
++        if mapping is None:
++            continue
++        bound = _View(total.node, tuple(mapping.items()))
++        exponential = bound.child(info.value)
++        if exponential.node.kind != "exp" or not _all_rows(
++            bound, info, logits.axes()
++        ):
++            continue
++        difference = exponential.args()[0]
++        if difference.node.kind != "-":
++            continue
++        values, shifted_maximum = difference.args()
++        if not _bound_same(values, logits, rows):
++            continue
++        original_max = shifted_maximum.node.reduction
++        if original_max is None or original_max.kind != "max":
++            continue
++        max_mapping = _bind_reduction(shifted_maximum, (feature,))
++        if max_mapping is None:
++            continue
++        max_view = _View(shifted_maximum.node, tuple(max_mapping.items()))
++        if not _bound_same(
++            max_view.child(original_max.value), logits, rows
++        ) or not _all_rows(max_view, original_max, logits.axes()):
++            continue
++        # SQL can take MAX of an already grouped, constant maximum again.
++        outer = maximum.node.reduction
++        if (
++            outer is not None
++            and outer.kind == "max"
++            and set(maximum.axes(outer.value.axes)).issubset(rows)
++        ):
++            if not _all_rows(maximum, outer, maximum.axes(outer.row_axes)):
++                continue
++            maximum = maximum.child(outer.value)
++        if not _bound_same(maximum, shifted_maximum, rows):
++            continue
++        if set(bound.axes(info.kept)) != set(rows) or set(
++            bound.axes(info.row_axes)
++        ) != set(logits.axes()):
++            continue
++        return _CrossEntropy(
++            logits, indexes, target.axes(replacement), feature, root.axes()
++        )
++    return None
+diff --git a/tests/test_dense_primitives.py b/tests/test_dense_primitives.py
+new file mode 100644
+index 0000000..f320751
+--- /dev/null
++++ b/tests/test_dense_primitives.py
+@@ -0,0 +1,123 @@
++"""Normalization and class-loss kernels preserve SQL and ddx results."""
++
++import os
++
++import numpy as np
++import pytest
++import xarray as xr
++
++from xarray_sql import Context
++from xarray_sql.training import TrainingSession
++
++pytest.importorskip("einfold.dense_program")
++pytest.importorskip("ddxdb")
++pytestmark = pytest.mark.skipif(
++    os.environ.get("MLX_ENABLE_TF32") != "0", reason="requires MLX GPU"
++)
++
++
++@pytest.mark.parametrize("operation", ["rms", "cross_entropy", "logsumexp"])
++@pytest.mark.parametrize("case", ["dense", "nullable", "filtered"])
++def test_primitives_and_ddx_gradients_preserve_masks_and_inputs(
++    monkeypatch, operation, case
++):
++    monkeypatch.setenv("EINFOLD_DENSE_SYMBOLIC_MASKS", "1")
++    rng = np.random.default_rng(25)
++    coordinates = np.arange(64) * 2 - 3
++    data = rng.normal(size=(2, 64))
++    column = (
++        "CASE WHEN k=1 THEN NULL ELSE val END" if case == "nullable" else "val"
++    )
++    where = " WHERE k<>1" if case == "filtered" else ""
++    prefix = f"values_table AS (SELECT b,k,{column} AS v FROM x{where}),"
++    if operation == "rms":
++        prefix += """magnitude AS (SELECT b,sqrt(AVG(v*v)+1e-5) AS n FROM values_table GROUP BY b),
++        normalized AS (SELECT x.b,x.k,x.v/n.n AS z FROM values_table x JOIN magnitude n ON x.b=n.b),
++        loss AS (SELECT SUM(z*z) AS l FROM normalized)"""
++    else:
++        prefix += """maximum AS (SELECT b,ddx_stop_gradient(MAX(v)) AS m FROM values_table GROUP BY b),
++        lse AS (SELECT x.b,MAX(m.m)+ln(SUM(exp(x.v-m.m))) AS z FROM values_table x JOIN maximum m ON x.b=m.b GROUP BY x.b),
++        loss AS (SELECT AVG(s.z-x.v) AS l FROM lse s JOIN targets t ON s.b=t.b JOIN values_table x ON x.b=t.b AND x.k=t.tok)"""
++        if operation == "logsumexp":
++            prefix = (
++                prefix[: prefix.index("loss AS (")]
++                + "loss AS (SELECT AVG(z) AS l FROM lse)"
++            )
++    expected = []
++    for enabled in [False, True]:
++        monkeypatch.setenv("XQL_MLX_NORMALIZATION", str(int(enabled)))
++        monkeypatch.setenv("XQL_MLX_NORMALIZATION_BACKWARD", str(int(enabled)))
++        monkeypatch.setenv("XQL_MLX_CROSS_ENTROPY", str(int(enabled)))
++        monkeypatch.setenv("XQL_MLX_SOFTMAX", str(int(enabled)))
++        session = TrainingSession(Context())
++        try:
++            session.bind(
++                "x",
++                xr.Dataset(
++                    {"val": (("b", "k"), data)},
++                    coords={"b": np.arange(2), "k": coordinates},
++                ),
++            )
++            session.bind(
++                "targets",
++                xr.Dataset(
++                    {"tok": ("b", coordinates[[3, 5]])},
++                    coords={"b": np.arange(2)},
++                ),
++            )
++            session.index_domains("targets", {"tok": ("x", "k")})
++            step = session.prepare_step(
++                gradients={
++                    "gx": f"WITH {prefix} SELECT b,k,grad(loss,val) AS g FROM x ORDER BY b,k"
++                },
++                stages={},
++                updates={},
++                assignments={},
++                compile=True,
++                validation="full",
++            )
++            for iteration in range(2):
++                session.bind(
++                    "x",
++                    xr.Dataset(
++                        {"val": (("b", "k"), data * (1 - iteration * 0.02))},
++                        coords={"b": np.arange(2), "k": coordinates},
++                    ),
++                )
++                session.bind(
++                    "targets",
++                    xr.Dataset(
++                        {
++                            "tok": (
++                                "b",
++                                coordinates[[3 + iteration, 5 + iteration]],
++                            )
++                        }
++                    ),
++                )
++                result = step()
++                rows = result.export("gx")["gx"]
++                loss = result.loss_value()
++                if not enabled:
++                    expected.append((loss, rows))
++                else:
++                    want_loss, want = expected[iteration]
++                    np.testing.assert_allclose(
++                        loss, want_loss, atol=3e-5, rtol=3e-5
++                    )
++                    assert rows.schema == want.schema
++                    assert rows["b"].to_pylist() == want["b"].to_pylist()
++                    assert rows["k"].to_pylist() == want["k"].to_pylist()
++                    assert (
++                        rows["g"].is_null().to_pylist()
++                        == want["g"].is_null().to_pylist()
++                    )
++                    np.testing.assert_allclose(
++                        rows["g"].to_numpy(),
++                        want["g"].to_numpy(),
++                        atol=3e-5,
++                        rtol=3e-5,
++                        equal_nan=True,
++                    )
++        finally:
++            session.close()
+diff --git a/xarray_sql/_dense_attention.py b/xarray_sql/_dense_attention.py
+index db29c93..ab66fea 100644
+--- a/xarray_sql/_dense_attention.py
++++ b/xarray_sql/_dense_attention.py
+@@ -11,6 +11,7 @@ from __future__ import annotations
+ from dataclasses import dataclass
+ 
+ import numpy as np
++from einfold.dense_program import _value_source
+ 
+ _FLOAT32_MAX = float(np.finfo(np.float32).max)
+ 
+@@ -34,7 +35,10 @@ class _View:
+         return tuple(self.child(a) for a in self.node.args)
+ 
+     def same(self, other):
+-        return self.node is other.node and self.axes() == other.axes()
++        return (
++            _value_source(self.node) is _value_source(other.node)
++            and self.axes() == other.axes()
++        )
+ 
+ 
+ def _view(node, mapping=()):
+@@ -48,7 +52,7 @@ def _view(node, mapping=()):
+ 
+ 
+ def _bound_same(inner, outer, kept):
+-    if inner.node is not outer.node:
++    if _value_source(inner.node) is not _value_source(outer.node):
+         return False
+     return all(
+         a is b
