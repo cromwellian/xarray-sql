@@ -17,7 +17,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-_REVISION = "bdde066d30a79f1f8db80633d7b723dedcb7086e"
+_REVISION = "303d65c8bbb16dd4c3994b2bf1b0ab0e29a06232"
 
 
 def main():
@@ -59,9 +59,7 @@ def main():
         if subprocess.check_output(
             ["git", "status", "--porcelain"], cwd=source
         ):
-            parser.error(
-                "the source checkout must be clean"
-            )
+            parser.error("the source checkout must be clean")
         subprocess.run(
             [
                 sys.executable,
